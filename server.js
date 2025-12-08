@@ -16,7 +16,7 @@ app.get('/', (req, res) => {
 app.get('/load', async (req, res) => {
   try {
     const imageUrl = req.query.url;
-    
+
     if (!imageUrl) {
       return res.status(400).send('URL parameter is required');
     }
@@ -66,9 +66,13 @@ app.get('/download', async (req, res) => {
     let extension = 'jpg';
     const contentType = response.headers['content-type'];
     if (contentType) {
-      if (contentType.includes('video')) extension = 'mp4';
-      else if (contentType.includes('png')) extension = 'png';
-      else if (contentType.includes('gif')) extension = 'gif';
+      if (contentType.includes('video')) {
+        extension = 'mp4';
+      } else if (contentType.includes('png')) {
+        extension = 'png';
+      } else if (contentType.includes('gif')) {
+        extension = 'gif';
+      }
     } else if (mediaUrl.includes('.mp4')) {
       extension = 'mp4';
     }

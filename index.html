@@ -51,19 +51,18 @@
         <!-- Input -->
         <v-container>
           <v-row class="pt-5 ma-5">
-            <v-col cols="1" md="2">
-              <v-select density="compact" :items="['info', 'query']" rounded="lg" variant="outlined"
-                v-model="radios"></v-select>
-            </v-col>
             <v-col>
-              <v-text-field density="compact" :label="radios" :placeholder="radios" rounded="lg" variant="outlined"
-                v-model="data"></v-text-field>
-            </v-col>
-            <v-col cols="1" md="1">
-              <v-btn icon @click="resetData()" size="small">
-                <v-icon>fi-rr-refresh</v-icon>
-              </v-btn>
-            </v-col>
+                <v-text-field density="compact" rounded="lg" variant="outlined"
+                  v-model="jsonString">
+                  <template #prepend-inner>
+                    <v-icon class="me-2" size="small">fi-rr-square-terminal</v-icon>
+                  </template>
+
+                  <template #append-inner>
+                    <v-icon class="ms-2" size="x-small" @click="resetData()">fi-rr-refresh</v-icon>
+                  </template>
+                </v-text-field>
+              </v-col>
           </v-row>
         </v-container>
       </v-app-bar>
@@ -242,6 +241,8 @@
     const app = createApp({
       data() {
         return {
+          jsonString: "",
+
           radios: 'info',
           text: {
             info: '',
@@ -293,6 +294,25 @@
           }
         },
 
+        jsonString: function (value) {
+            let json = this.jsonString != "" ? JSON.parse(this.jsonString) : null;
+            if (!json) return false;
+
+            console.log('jsonString', JSON.parse(this.jsonString));
+
+            if (json.data != undefined && json.data.xdt_api__v1__feed__reels_media != undefined) {
+              this.parserData(json, "xdt_api__v1__feed__reels_media");
+            }
+
+            else if (json.data != undefined && json.data.xdt_api__v1__feed__reels_media__connection != undefined) {
+              this.parserData(json, "xdt_api__v1__feed__reels_media__connection");
+            }
+            
+            else {
+              this.parserData(json, "feed");
+            }
+        },
+
         'preview.isShow': function (val) {
           if (val) window.addEventListener('keydown', this.handleKey)
           else window.removeEventListener('keydown', this.handleKey)
@@ -318,6 +338,159 @@
       },
 
       methods: {
+        /**
+         * Parse JSON Data
+         * -----------------------------------------------------------------------
+         * */
+        parserData(json, type) {
+            if (!json) return false;
+
+            this.result = [];
+
+            switch (type) {
+                // -------------------------------------------------------------
+                case "xdt_api__v1__feed__reels_media":
+                    json.data.xdt_api__v1__feed__reels_media.reels_media[0].items.forEach(item => {
+                        let o = {
+                            id: item.id,
+                            username: json.data.xdt_api__v1__feed__reels_media.reels_media[0].user.username,
+                            taken_at: moment.unix(item.taken_at).format('YYYYMMDD-HHmmss'),
+                            filename: json.data.xdt_api__v1__feed__reels_media.reels_media[0].user.username + "-" + moment.unix(item.taken_at).format('YYYYMMDD-HHmmss'),
+                            image: {
+                            url: item.image_versions2.candidates[0].url,
+                            height: item.image_versions2.candidates[0].height,
+                            width: item.image_versions2.candidates[0].width,
+                            },
+                        };
+
+                        if (item.video_versions) {
+                            o.video = {
+                            url: item.video_versions[0].url,
+                            height: item.original_height,
+                            width: item.original_width,
+                            }
+                        }
+
+                        this.query.items.push(o);
+                        this.result.push(o);
+                    });
+                    break;
+
+                // -------------------------------------------------------------
+                case "xdt_api__v1__feed__reels_media__connection":
+                    json.data.xdt_api__v1__feed__reels_media__connection.edges.forEach(edge => {
+                        edge.node.items.forEach(item => {
+                            let o = {
+                            id: item.id,
+                            username: edge.node.user.username,
+                            taken_at: moment.unix(item.taken_at).format('YYYYMMDD-HHmmss'),
+                            filename: edge.node.user.username + "-" + moment.unix(item.taken_at).format('YYYYMMDD-HHmmss'),
+                            image: {
+                                url: item.image_versions2.candidates[0].url,
+                                height: item.image_versions2.candidates[0].height,
+                                width: item.image_versions2.candidates[0].width,
+                            },
+                            };
+
+                            console.log('item', item)
+
+                            if (item.video_versions) {
+                            o.video = {
+                                url: item.video_versions[0].url,
+                                height: item.original_height,
+                                width: item.original_width,
+                            }
+                            }
+
+                            this.query.items.push(o);
+                            this.result.push(o);
+                        });
+                    });
+                    break;
+
+                // -------------------------------------------------------------
+                case "feed":
+                    json.items.forEach(item => {
+                      // Carousel Content
+                      if (item.carousel_media) {
+                        console.log('Carousel Content');
+
+                        item.carousel_media.forEach((cm, idx) => {
+                          let sequence = String(idx + 1).padStart(3, '0');
+
+                          let o = {
+                            id: cm.id,
+                            username: item.user.username,
+                            taken_at: moment.unix(cm.taken_at).format('YYYYMMDD-HHmmss') + '-' + sequence,
+                            filename: item.user.username + "-" + moment.unix(cm.taken_at).format('YYYYMMDD-HHmmss') + '-' + sequence,
+                            image: {
+                              url: cm.image_versions2.candidates[0].url,
+                              height: cm.image_versions2.candidates[0].height,
+                              width: cm.image_versions2.candidates[0].width,
+                            },
+                          };
+
+                          if (cm.video_versions) {
+                            o.video = {
+                              url: cm.video_versions[0].url,
+                              height: cm.video_versions[0].height,
+                              width: cm.video_versions[0].width,
+                            }
+                          }
+
+                          this.info.items.push(o);
+                          this.result.push(o);
+                        });
+                      }
+
+                      // Single Content - Video
+                      else if (item.video_versions) {
+                        console.log('Single Content | Video');
+                        let o = {
+                          id: item.id,
+                          username: item.user.username,
+                          taken_at: moment.unix(item.taken_at).format('YYYYMMDD-HHmmss'),
+                          filename: item.user.username + "-" + moment.unix(item.taken_at).format('YYYYMMDD-HHmmss'),
+                          image: {
+                            url: item.image_versions2.candidates[0].url,
+                            height: item.image_versions2.candidates[0].height,
+                            width: item.image_versions2.candidates[0].width,
+                          },
+                          video: {
+                            url: item.video_versions[0].url,
+                            height: item.video_versions[0].height,
+                            width: item.video_versions[0].width,
+                          }
+                        };
+
+                        this.info.items.push(o);
+                        this.result.push(o);
+                      }
+
+                      else if (item.image_versions2) {
+                        console.log('Single Content | Image');
+                        let o = {
+                          id: item.id,
+                          username: item.user.username,
+                          taken_at: moment.unix(item.taken_at).format('YYYYMMDD-HHmmss'),
+                          filename: item.user.username + "-" + moment.unix(item.taken_at).format('YYYYMMDD-HHmmss'),
+                          image: {
+                            url: item.image_versions2.candidates[0].url,
+                            height: item.image_versions2.candidates[0].height,
+                            width: item.image_versions2.candidates[0].width,
+                          }
+                        };
+
+                        this.info.items.push(o);
+                        this.result.push(o);
+                      }
+
+                    });
+                    break;
+            }
+            
+        },
+
         /**
          * -----------------------------------------------------------------------
          * */
@@ -666,6 +839,7 @@
           this.data = "";
           this.result = [];
           this.json = {};
+          this.jsonString = "";
         },
       },
 

@@ -10,6 +10,20 @@ Aplikasi web untuk parsing dan menampilkan media dari Instagram menggunakan Vue.
 npm install
 ```
 
+## Linting
+
+Project ini menggunakan ESLint untuk menjaga kualitas kode.
+
+### Menjalankan Linter
+
+```bash
+# Check untuk error dan warning
+npm run lint
+
+# Auto-fix error yang bisa diperbaiki otomatis
+npm run lint:fix
+```
+
 ## Menjalankan Server
 
 ### Single Instance (Default)

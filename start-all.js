@@ -7,7 +7,7 @@ const processes = [];
 
 apps.forEach(app => {
   console.log(`📱 Starting ${app.name} on port ${app.port}...`);
-  
+
   const proc = spawn('node', ['server.js'], {
     env: { ...process.env, PORT: app.port.toString() },
     stdio: 'inherit'
@@ -45,7 +45,7 @@ process.on('SIGINT', () => {
 
 process.on('SIGTERM', () => {
   console.log('\n\n🛑 Shutting down all applications...');
-  processes.forEach(({ name, process: proc }) => {
+  processes.forEach(({ process: proc }) => {
     proc.kill();
   });
   setTimeout(() => {

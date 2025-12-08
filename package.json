@@ -9,7 +9,9 @@
     "start:3001": "PORT=3001 node server.js",
     "start:3002": "PORT=3002 node server.js",
     "start:3003": "PORT=3003 node server.js",
-    "start:all": "node start-all.js"
+    "start:all": "node start-all.js",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix"
   },
   "keywords": [
     "instagram",
@@ -19,7 +21,10 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "express": "^4.18.2",
-    "axios": "^1.6.0"
+    "axios": "^1.6.0",
+    "express": "^4.18.2"
+  },
+  "devDependencies": {
+    "eslint": "^8.57.1"
   }
 }
