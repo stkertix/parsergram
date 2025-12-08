@@ -82,7 +82,7 @@
               <template v-for="(item, index) in result">
                 <v-col cols="6" md="4" xl="2">
                   <v-card class="mb-3" rounded="xl">
-                    <v-img cover :src="'/load/load.php?url=' + encodeURIComponent(item.image.url)">
+                    <v-img cover :src="'/load?url=' + encodeURIComponent(item.image.url)">
                       <div class="fill-height bg-gradient"></div>
 
                       <div class="position-absolute top-0 left-0 ps-3 pt-2 text-white text-shadow text-left">
@@ -148,17 +148,12 @@
             <v-card-text class="d-flex justify-center align-center rounded-xl" style="overflow:hidden;"
               @wheel.prevent="onScroll" @click="startDrag" @mousemove="onDrag">
 
-              <!-- <template v-if="preview.selected.index - 1 >= 0">
-                <v-img :src="'/load.php?url=' + encodeURIComponent(result[preview.selected.index - 1].image.url)" contain
-                  width="100" max-width="50%" max-height="80vh" rounded="lg"></v-img>
-              </template> -->
-
               <div class="zoom-container" :style="{
                   transform: `translate(${preview.pos.x}px, ${preview.pos.y}px) scale(${preview.zoom})`,
                   cursor: preview.isDragging ? 'grabbing' : preview.zoom > 1 ? 'grab' : 'default',
                 }">
                 <v-img v-if="!preview.isVideo"
-                  :src="'/load/load.php?url=' + encodeURIComponent(result[preview.selected.index].image.url)" contain
+                  :src="'/load?url=' + encodeURIComponent(result[preview.selected.index].image.url)" contain
                   width="auto" max-width="100%" max-height="80vh" rounded="lg">
                   <template v-slot:placeholder>
                     <div class="d-flex align-center justify-center fill-height">
@@ -168,16 +163,11 @@
                 </v-img>
 
                 <video v-if="preview.isVideo" height="100%" controls>
-                  <source :src="'/load/load.php?url=' + encodeURIComponent(result[preview.selected.index].video.url)"
+                  <source :src="'/load?url=' + encodeURIComponent(result[preview.selected.index].video.url)"
                     type="video/mp4">
                   Your browser does not support HTML video.
                 </video>
               </div>
-
-              <!-- <template v-if="preview.selected.index + 1 < result.length">
-                <v-img :src="'/load.php?url=' + encodeURIComponent(result[preview.selected.index + 1].image.url)" contain
-                  width="100" max-width="50%" max-height="80vh" rounded="lg"></v-img>
-              </template> -->
 
               <v-divider class="mx-5" vertical></v-divider>
 
@@ -226,7 +216,7 @@
 
           <v-card v-if="false && result[preview.selected.index].video != undefined">
             <video height="100%" controls>
-              <source :src="'/load/load.php?url=' + encodeURIComponent(result[preview.selected.index].video.url)"
+              <source :src="'/load?url=' + encodeURIComponent(result[preview.selected.index].video.url)"
                 type="video/mp4">
               Your browser does not support HTML video.
             </video>
@@ -538,7 +528,7 @@
           params.push('url=' + encodeURIComponent(mediaUrl));
           params.push('filename=' + filename);
 
-          let url = '/load/download.php?' + params.join('&')
+          let url = '/download?' + params.join('&')
 
           // window.open(url, "_blank");
           window.open(url);

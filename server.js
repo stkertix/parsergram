@@ -13,7 +13,7 @@ app.get('/', (req, res) => {
 });
 
 // Proxy untuk load image/video dari Instagram
-app.get('/load/load.php', async (req, res) => {
+app.get('/load', async (req, res) => {
   try {
     const imageUrl = req.query.url;
     
@@ -44,7 +44,7 @@ app.get('/load/load.php', async (req, res) => {
 });
 
 // Download endpoint
-app.get('/load/download.php', async (req, res) => {
+app.get('/download', async (req, res) => {
   try {
     const mediaUrl = req.query.url;
     const filename = req.query.filename || 'download';

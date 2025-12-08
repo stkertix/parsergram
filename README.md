@@ -5,6 +5,7 @@ Aplikasi web untuk parsing dan menampilkan media dari Instagram menggunakan Vue.
 ## Instalasi
 
 1. Install dependencies:
+
 ```bash
 npm install
 ```
@@ -12,20 +13,25 @@ npm install
 ## Menjalankan Server
 
 ### Single Instance (Default)
+
 ```bash
 npm start
 ```
+
 Server akan berjalan di `http://localhost:3000`
 
 ### Multiple Instances
 
 #### Opsi 1: Jalankan Semua Aplikasi Sekaligus
+
 ```bash
 npm run start:all
 ```
+
 Ini akan menjalankan semua aplikasi yang dikonfigurasi di `apps.config.js`
 
 #### Opsi 2: Jalankan di Port Tertentu
+
 ```bash
 # Port 3000
 npm run start:3000
@@ -38,6 +44,7 @@ npm run start:3002
 ```
 
 #### Opsi 3: Jalankan dengan Port Custom
+
 ```bash
 # Menggunakan environment variable
 PORT=3005 node server.js
@@ -53,15 +60,15 @@ Edit file `apps.config.js` untuk menambahkan atau mengubah konfigurasi aplikasi:
 ```javascript
 module.exports = [
   {
-    name: 'parsergram-1',
+    name: "parsergram-1",
     port: 3000,
-    description: 'ParserGram Instance 1'
+    description: "ParserGram Instance 1",
   },
   {
-    name: 'parsergram-2',
+    name: "parsergram-2",
     port: 3001,
-    description: 'ParserGram Instance 2'
-  }
+    description: "ParserGram Instance 2",
+  },
   // Tambahkan lebih banyak di sini...
 ];
 ```
@@ -76,16 +83,16 @@ module.exports = [
 ## Endpoints
 
 - `GET /` - Halaman utama (index.html)
-- `GET /load/load.php?url=...` - Proxy untuk load image/video
-- `GET /load/download.php?url=...&filename=...` - Download media
+- `GET /load?url=...` - Proxy untuk load image/video
+- `GET /download?url=...&filename=...` - Download media
 
 ## Catatan
 
 Aplikasi ini menggunakan CDN untuk:
+
 - Vue.js 3
 - Vuetify 3
 - Moment.js
 - Flaticon Icons
 
 Jadi tidak perlu build step, langsung bisa dijalankan dengan Express!
-
