@@ -1,0 +1,25 @@
+{
+  "name": "parsergram",
+  "version": "1.0.0",
+  "description": "Instagram parser with Express server",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js",
+    "start:4000": "PORT=4000 node server.js",
+    "start:4001": "PORT=4001 node server.js",
+    "start:4002": "PORT=4002 node server.js",
+    "start:all": "node start-all.js"
+  },
+  "keywords": [
+    "instagram",
+    "parser",
+    "express"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "express": "^4.18.2",
+    "axios": "^1.6.0"
+  }
+}
