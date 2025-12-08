@@ -6,9 +6,9 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js",
-    "start:4000": "PORT=4000 node server.js",
-    "start:4001": "PORT=4001 node server.js",
-    "start:4002": "PORT=4002 node server.js",
+    "start:3001": "PORT=3001 node server.js",
+    "start:3002": "PORT=3002 node server.js",
+    "start:3003": "PORT=3003 node server.js",
     "start:all": "node start-all.js"
   },
   "keywords": [

@@ -61,12 +61,12 @@ Edit file `apps.config.js` untuk menambahkan atau mengubah konfigurasi aplikasi:
 module.exports = [
   {
     name: "parsergram-1",
-    port: 3000,
+    port: 3001,
     description: "ParserGram Instance 1",
   },
   {
     name: "parsergram-2",
-    port: 3001,
+    port: 3002,
     description: "ParserGram Instance 2",
   },
   // Tambahkan lebih banyak di sini...
