@@ -81,7 +81,7 @@
               <template v-for="(item, index) in result">
                 <v-col cols="6" md="4" xl="2">
                   <v-card class="mb-3" rounded="xl">
-                    <v-img cover :src="'/load?url=' + encodeURIComponent(item.image.url)">
+                    <v-img cover :src="getPath('/load?url=') + encodeURIComponent(item.image.url)">
                       <div class="fill-height bg-gradient"></div>
 
                       <div class="position-absolute top-0 left-0 ps-3 pt-2 text-white text-shadow text-left">
@@ -152,7 +152,7 @@
                   cursor: preview.isDragging ? 'grabbing' : preview.zoom > 1 ? 'grab' : 'default',
                 }">
                 <v-img v-if="!preview.isVideo"
-                  :src="'/load?url=' + encodeURIComponent(result[preview.selected.index].image.url)" contain
+                  :src="getPath('/load?url=') + encodeURIComponent(result[preview.selected.index].image.url)" contain
                   width="auto" max-width="100%" max-height="80vh" rounded="lg">
                   <template v-slot:placeholder>
                     <div class="d-flex align-center justify-center fill-height">
@@ -162,7 +162,7 @@
                 </v-img>
 
                 <video v-if="preview.isVideo" height="100%" controls>
-                  <source :src="'/load?url=' + encodeURIComponent(result[preview.selected.index].video.url)"
+                  <source :src="getPath('/load?url=') + encodeURIComponent(result[preview.selected.index].video.url)"
                     type="video/mp4">
                   Your browser does not support HTML video.
                 </video>
@@ -215,7 +215,7 @@
 
           <v-card v-if="false && result[preview.selected.index].video != undefined">
             <video height="100%" controls>
-              <source :src="'/load?url=' + encodeURIComponent(result[preview.selected.index].video.url)"
+              <source :src="getPath('/load?url=') + encodeURIComponent(result[preview.selected.index].video.url)"
                 type="video/mp4">
               Your browser does not support HTML video.
             </video>
@@ -338,6 +338,19 @@
       },
 
       methods: {
+        /**
+         * Helper function untuk mendapatkan path dengan BASE_PATH
+         * -----------------------------------------------------------------------
+         * */
+        getPath(path) {
+          const basePath = window.BASE_PATH || '';
+          // Pastikan basePath tidak double slash
+          if (basePath && path.startsWith('/')) {
+            return basePath + path;
+          }
+          return basePath ? basePath + '/' + path.replace(/^\//, '') : path;
+        },
+
         /**
          * Parse JSON Data
          * -----------------------------------------------------------------------
@@ -701,7 +714,7 @@
           params.push('url=' + encodeURIComponent(mediaUrl));
           params.push('filename=' + filename);
 
-          let url = '/download?' + params.join('&')
+          let url = this.getPath('/download?') + params.join('&')
 
           // window.open(url, "_blank");
           window.open(url);

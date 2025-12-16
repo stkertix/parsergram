@@ -16,14 +16,12 @@ app.get(route('/'), (req, res) => {
   const fs = require('fs');
   let html = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
   
-  // Inject base path ke HTML jika BASE_PATH ada
-  if (BASE_PATH) {
-    // Replace path absolut dengan base path untuk semua kemunculan
-    // Pattern: '/load? atau "/load? atau : '/load? atau : "/load?
-    html = html.replace(/(['":])\/load\?/g, `$1${BASE_PATH}/load?`);
-    // Pattern: '/download? atau "/download?
-    html = html.replace(/(['"])\/download\?/g, `$1${BASE_PATH}/download?`);
-  }
+  // Inject BASE_PATH sebagai JavaScript variable
+  const basePathScript = `
+  <script>
+    window.BASE_PATH = '${BASE_PATH || ''}';
+  </script>`;
+  html = html.replace('</head>', basePathScript + '</head>');
   
   res.setHeader('Content-Type', 'text/html');
   res.send(html);
