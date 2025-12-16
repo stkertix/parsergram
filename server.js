@@ -3,17 +3,34 @@ const axios = require('axios');
 const path = require('path');
 const app = express();
 const PORT = process.env.PORT || 3001;
+const BASE_PATH = process.env.BASE_PATH || '';
+
+// Helper function untuk membuat route dengan base path
+const route = (path) => BASE_PATH ? BASE_PATH + path : path;
 
 // Serve static files (jika ada folder public, css, js, dll)
-app.use(express.static('public'));
+app.use(BASE_PATH || '/', express.static('public'));
 
-// Serve index.html di root
-app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'index.html'));
+// Serve index.html di root dengan base path injection
+app.get(route('/'), (req, res) => {
+  const fs = require('fs');
+  let html = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
+  
+  // Inject base path ke HTML jika BASE_PATH ada
+  if (BASE_PATH) {
+    // Replace path absolut dengan base path untuk semua kemunculan
+    // Pattern: '/load? atau "/load? atau : '/load? atau : "/load?
+    html = html.replace(/(['":])\/load\?/g, `$1${BASE_PATH}/load?`);
+    // Pattern: '/download? atau "/download?
+    html = html.replace(/(['"])\/download\?/g, `$1${BASE_PATH}/download?`);
+  }
+  
+  res.setHeader('Content-Type', 'text/html');
+  res.send(html);
 });
 
 // Proxy untuk load image/video dari Instagram
-app.get('/load', async (req, res) => {
+app.get(route('/load'), async (req, res) => {
   try {
     const imageUrl = req.query.url;
 
@@ -44,7 +61,7 @@ app.get('/load', async (req, res) => {
 });
 
 // Download endpoint
-app.get('/download', async (req, res) => {
+app.get(route('/download'), async (req, res) => {
   try {
     const mediaUrl = req.query.url;
     const filename = req.query.filename || 'download';
@@ -91,7 +108,10 @@ app.get('/download', async (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`🚀 Server running at http://localhost:${PORT}`);
-  console.log(`📱 Open your browser and navigate to http://localhost:${PORT}`);
+  console.log(`🚀 Server running at http://localhost:${PORT}${BASE_PATH || ''}`);
+  console.log(`📱 Open your browser and navigate to http://localhost:${PORT}${BASE_PATH || ''}`);
+  if (BASE_PATH) {
+    console.log(`📍 Base path: ${BASE_PATH}`);
+  }
 });
 
