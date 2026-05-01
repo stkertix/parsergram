@@ -10,6 +10,10 @@ const BASE_PATH = process.env.BASE_PATH || '';
 const IG_COOKIE = process.env.IG_COOKIE || '';
 const IG_SESSIONID = process.env.IG_SESSIONID || '';
 const IG_WWW_CLAIM = process.env.IG_WWW_CLAIM || '0';
+const COOKIE_CACHE_TTL_MS = 5 * 60 * 1000;
+
+let cachedInstagramCookieHeader = '';
+let cachedInstagramCookieAt = 0;
 
 /**
  * Prefix route path with BASE_PATH when configured.
@@ -56,12 +60,77 @@ const getInstagramCookieHeader = () => {
 };
 
 /**
+ * Merge multiple cookie strings into one normalized header.
+ * -----------------------------------------------------------------------------
+ * @param {...string} cookieSources - Cookie header strings.
+ * @returns {string} Merged cookie header.
+ */
+const mergeCookieHeaders = (...cookieSources) => {
+  const cookieJar = {};
+
+  cookieSources
+    .filter(Boolean)
+    .forEach((source) => {
+      source.split(';').forEach((cookiePart) => {
+        const [rawKey, ...rawValue] = cookiePart.trim().split('=');
+        const key = (rawKey || '').trim();
+        const value = rawValue.join('=').trim();
+        if (!key || !value) {
+          return;
+        }
+        cookieJar[key] = value;
+      });
+    });
+
+  return Object.entries(cookieJar).map(([key, value]) => `${key}=${value}`).join('; ');
+};
+
+/**
+ * Bootstrap Instagram cookie with homepage set-cookie values.
+ * -----------------------------------------------------------------------------
+ * Helps feed endpoints that require csrftoken and companion cookies.
+ * @returns {Promise<string>} Bootstrapped cookie header.
+ */
+const getBootstrappedInstagramCookieHeader = async () => {
+  const now = Date.now();
+  if (cachedInstagramCookieHeader && (now - cachedInstagramCookieAt) < COOKIE_CACHE_TTL_MS) {
+    return cachedInstagramCookieHeader;
+  }
+
+  const baseCookie = getInstagramCookieHeader();
+  if (!baseCookie) {
+    cachedInstagramCookieHeader = '';
+    cachedInstagramCookieAt = now;
+    return '';
+  }
+
+  try {
+    const homepageResponse = await axios.get('https://www.instagram.com/', {
+      timeout: 20000,
+      headers: {
+        'User-Agent': defaultHeaders['User-Agent'],
+        'Cookie': baseCookie
+      }
+    });
+    const responseCookies = (homepageResponse.headers['set-cookie'] || [])
+      .map((cookieLine) => cookieLine.split(';')[0])
+      .join('; ');
+    cachedInstagramCookieHeader = mergeCookieHeaders(baseCookie, responseCookies);
+  } catch (error) {
+    cachedInstagramCookieHeader = baseCookie;
+  }
+
+  cachedInstagramCookieAt = now;
+  return cachedInstagramCookieHeader;
+};
+
+/**
  * Build optional auth headers for Instagram API calls.
  * -----------------------------------------------------------------------------
  * @returns {Record<string, string>} Auth headers object.
  */
-const getInstagramAuthHeaders = () => {
-  const cookieHeader = getInstagramCookieHeader();
+const getInstagramAuthHeaders = async () => {
+  const cookieHeader = await getBootstrappedInstagramCookieHeader();
   if (!cookieHeader) {
     return {
       'X-IG-WWW-Claim': IG_WWW_CLAIM
@@ -86,9 +155,10 @@ const getInstagramAuthHeaders = () => {
  * @returns {Promise<import('axios').AxiosResponse>} Axios response.
  */
 const igGet = async (url, config = {}) => {
+  const authHeaders = await getInstagramAuthHeaders();
   const headers = {
     ...igApiHeaders,
-    ...getInstagramAuthHeaders(),
+    ...authHeaders,
     ...(config.headers || {})
   };
   return axios.get(url, {
@@ -319,6 +389,118 @@ const toReelMediaItem = (reelItem, username, mediaKind) => {
 };
 
 /**
+ * Normalize feed item from Instagram feed/user endpoint.
+ * @param {object} feedItem - Raw feed item from API.
+ * @param {string} fallbackUsername - Username fallback when user object missing.
+ * @returns {object|null} Normalized feed item.
+ */
+const toApiFeedItem = (feedItem, fallbackUsername) => {
+  const primaryImage = feedItem?.image_versions2?.candidates?.[0];
+  if (!primaryImage?.url) {
+    return null;
+  }
+
+  const item = {
+    id: feedItem.id,
+    taken_at: feedItem.taken_at,
+    user: { username: feedItem.user?.username || fallbackUsername },
+    image_versions2: {
+      candidates: [{
+        url: primaryImage.url,
+        width: primaryImage.width || feedItem.original_width || 0,
+        height: primaryImage.height || feedItem.original_height || 0
+      }]
+    },
+    media_kind: 'feed'
+  };
+
+  if (feedItem.video_versions?.[0]?.url) {
+    item.video_versions = [{
+      url: feedItem.video_versions[0].url,
+      width: feedItem.video_versions[0].width || feedItem.original_width || 0,
+      height: feedItem.video_versions[0].height || feedItem.original_height || 0
+    }];
+  }
+
+  const carouselMedia = feedItem.carousel_media || [];
+  if (carouselMedia.length > 0) {
+    item.carousel_media = carouselMedia
+      .map((media) => {
+        const imageCandidate = media?.image_versions2?.candidates?.[0];
+        if (!imageCandidate?.url) {
+          return null;
+        }
+        const mediaItem = {
+          id: media.id,
+          taken_at: media.taken_at || feedItem.taken_at,
+          image_versions2: {
+            candidates: [{
+              url: imageCandidate.url,
+              width: imageCandidate.width || media.original_width || 0,
+              height: imageCandidate.height || media.original_height || 0
+            }]
+          }
+        };
+        if (media.video_versions?.[0]?.url) {
+          mediaItem.video_versions = [{
+            url: media.video_versions[0].url,
+            width: media.video_versions[0].width || media.original_width || 0,
+            height: media.video_versions[0].height || media.original_height || 0
+          }];
+        }
+        return mediaItem;
+      })
+      .filter(Boolean);
+  }
+
+  return item;
+};
+
+/**
+ * Get feed posts with fallback strategy across multiple IG endpoints.
+ * @param {object} user - Instagram user object from web_profile_info.
+ * @param {string} username - Requested username.
+ * @returns {Promise<object[]>} Normalized feed items.
+ */
+const getFeedItems = async (user, username) => {
+  const feedEdges = user.edge_owner_to_timeline_media?.edges || [];
+  let feedItems = feedEdges
+    .map((edge) => edge.node)
+    .filter((node) => node?.display_url)
+    .map((node) => toMediaItem(node, user.username || username))
+    .map((item) => ({ ...item, media_kind: 'feed' }));
+
+  if (feedItems.length > 0) {
+    return feedItems;
+  }
+
+  const feedEndpoints = [
+    `https://www.instagram.com/api/v1/feed/user/${user.id}/`,
+    `https://www.instagram.com/api/v1/feed/user/${user.id}/username/`
+  ];
+
+  for (const endpoint of feedEndpoints) {
+    try {
+      const feedResponse = await igGet(endpoint, {
+        params: { count: 33 },
+        timeout: 20000
+      });
+      const rawItems = feedResponse.data?.items || feedResponse.data?.feed_items || [];
+      feedItems = rawItems
+        .map((rawItem) => toApiFeedItem(rawItem, user.username || username))
+        .filter(Boolean);
+      if (feedItems.length > 0) {
+        return feedItems;
+      }
+    } catch (feedError) {
+      console.error(`Feed fallback skipped (${endpoint}):`, feedError.message);
+    }
+  }
+
+  return [];
+};
+
+/**
  * Get reels_media items by reel id.
  * -----------------------------------------------------------------------------
  * @param {string} reelId - Reel id or highlight:{id}.
@@ -447,12 +629,7 @@ app.get(route('/profile'), async (req, res) => {
       });
     }
 
-    const feedEdges = user.edge_owner_to_timeline_media?.edges || [];
-    const feedItems = feedEdges
-      .map((edge) => edge.node)
-      .filter((node) => node?.display_url)
-      .map((node) => toMediaItem(node, user.username || username))
-      .map((item) => ({ ...item, media_kind: 'feed' }));
+    const feedItems = await getFeedItems(user, username);
 
     let storyItems = [];
     try {
