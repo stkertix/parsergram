@@ -1,5 +1,6 @@
 require('dotenv').config();
 
+const fs = require('fs');
 const express = require('express');
 const axios = require('axios');
 const path = require('path');
@@ -10,19 +11,40 @@ const IG_COOKIE = process.env.IG_COOKIE || '';
 const IG_SESSIONID = process.env.IG_SESSIONID || '';
 const IG_WWW_CLAIM = process.env.IG_WWW_CLAIM || '0';
 
-// Helper function untuk membuat route dengan base path
+/**
+ * Prefix route path with BASE_PATH when configured.
+ * -----------------------------------------------------------------------------
+ * @param {string} pathName - Route path without base prefix.
+ * @returns {string} Resolved route path.
+ */
 const route = (path) => BASE_PATH ? BASE_PATH + path : path;
 
+/**
+ * Default headers for fetching Instagram assets/endpoints.
+ * -----------------------------------------------------------------------------
+ * Reused by proxy/download handlers.
+ */
 const defaultHeaders = {
   'Referer': 'https://www.instagram.com/',
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
 };
+
+/**
+ * Headers required by Instagram web API endpoints.
+ * -----------------------------------------------------------------------------
+ */
 const igApiHeaders = {
   ...defaultHeaders,
   'X-IG-App-ID': '936619743392459',
   'X-Requested-With': 'XMLHttpRequest'
 };
 
+/**
+ * Build cookie header from env vars.
+ * -----------------------------------------------------------------------------
+ * Used by proxy/download handlers.
+ * @returns {string} Cookie header value.
+ */
 const getInstagramCookieHeader = () => {
   if (IG_COOKIE) {
     return IG_COOKIE;
@@ -33,6 +55,11 @@ const getInstagramCookieHeader = () => {
   return '';
 };
 
+/**
+ * Build optional auth headers for Instagram API calls.
+ * -----------------------------------------------------------------------------
+ * @returns {Record<string, string>} Auth headers object.
+ */
 const getInstagramAuthHeaders = () => {
   const cookieHeader = getInstagramCookieHeader();
   if (!cookieHeader) {
@@ -51,6 +78,13 @@ const getInstagramAuthHeaders = () => {
   };
 };
 
+/**
+ * Perform authenticated GET request to Instagram API.
+ * -----------------------------------------------------------------------------
+ * @param {string} url - Target URL.
+ * @param {object} [config={}] - Axios request config.
+ * @returns {Promise<import('axios').AxiosResponse>} Axios response.
+ */
 const igGet = async (url, config = {}) => {
   const headers = {
     ...igApiHeaders,
@@ -63,12 +97,24 @@ const igGet = async (url, config = {}) => {
   });
 };
 
+/**
+ * Convert Instagram node image data to parser candidate format.
+ * -----------------------------------------------------------------------------
+ * @param {object} node - Instagram media node.
+ * @returns {{url: string, height: number, width: number}} Image candidate object.
+ */
 const toImageCandidate = (node) => ({
   url: node.display_url,
   height: node.dimensions?.height || 0,
   width: node.dimensions?.width || 0
 });
 
+/**
+ * Convert Instagram node video data to parser video_versions format.
+ * -----------------------------------------------------------------------------
+ * @param {object} node - Instagram media node.
+ * @returns {Array<{url: string, height: number, width: number}>|undefined} Video versions list.
+ */
 const toVideoVersions = (node) => {
   if (!node.is_video || !node.video_url) {
     return undefined;
@@ -80,6 +126,14 @@ const toVideoVersions = (node) => {
   }];
 };
 
+/**
+ * Convert feed node to normalized parser item format.
+ * Handles single media and carousel media.
+ * -----------------------------------------------------------------------------
+ * @param {object} node - Instagram feed node.
+ * @param {string} username - Username owner of media.
+ * @returns {object} Normalized parser item.
+ */
 const toMediaItem = (node, username) => {
   const item = {
     id: node.id,
@@ -121,6 +175,12 @@ const toMediaItem = (node, username) => {
   return item;
 };
 
+/**
+ * Parse width/height from Instagram profile picture URL.
+ * -----------------------------------------------------------------------------
+ * @param {string} url - Profile picture URL.
+ * @returns {{width: number, height: number}} Parsed dimensions.
+ */
 const extractSizeFromProfilePicUrl = (url) => {
   if (!url) {
     return { width: 0, height: 0 };
@@ -137,6 +197,12 @@ const extractSizeFromProfilePicUrl = (url) => {
   };
 };
 
+/**
+ * Pick best available profile picture candidate.
+ * -----------------------------------------------------------------------------
+ * @param {object} user - Instagram user object.
+ * @returns {{url: string, width: number, height: number}|null} Best picture candidate.
+ */
 const chooseBestProfilePicture = (user) => {
   const candidates = [];
 
@@ -182,6 +248,13 @@ const chooseBestProfilePicture = (user) => {
   });
 };
 
+/**
+ * Convert profile picture data into normalized parser item.
+ * -----------------------------------------------------------------------------
+ * @param {object} user - Instagram user object.
+ * @param {string} username - Username value.
+ * @returns {object|null} Profile picture item or null when missing.
+ */
 const toProfilePictureItem = (user, username) => {
   const bestProfilePic = chooseBestProfilePicture(user);
   if (!bestProfilePic?.url) {
@@ -203,6 +276,14 @@ const toProfilePictureItem = (user, username) => {
   };
 };
 
+/**
+ * Convert story/highlight reel item to normalized parser item.
+ * -----------------------------------------------------------------------------
+ * @param {object} reelItem - Story/highlight media item.
+ * @param {string} username - Username owner of media.
+ * @param {string} mediaKind - Label for source kind (story/highlight).
+ * @returns {object|null} Normalized item or null when invalid.
+ */
 const toReelMediaItem = (reelItem, username, mediaKind) => {
   const imageCandidate = reelItem.image_versions2?.candidates?.[0];
   const fallbackWidth = reelItem.original_width || 0;
@@ -237,6 +318,12 @@ const toReelMediaItem = (reelItem, username, mediaKind) => {
   return item;
 };
 
+/**
+ * Get reels_media items by reel id.
+ * -----------------------------------------------------------------------------
+ * @param {string} reelId - Reel id or highlight:{id}.
+ * @returns {Promise<object[]>} Array of reel items.
+ */
 const getReelItemsByReelId = async (reelId) => {
   const reelResponse = await igGet('https://www.instagram.com/api/v1/feed/reels_media/', {
     params: { reel_ids: reelId },
@@ -246,12 +333,54 @@ const getReelItemsByReelId = async (reelId) => {
   return reels[reelId]?.items || [];
 };
 
-// Serve static files (jika ada folder public, css, js, dll)
+/**
+ * Infer output file extension from content-type or source URL.
+ * -----------------------------------------------------------------------------
+ * @param {string|undefined} contentType - Response content type.
+ * @param {string} mediaUrl - Source media URL.
+ * @returns {string} Suggested file extension.
+ */
+const getMediaExtension = (contentType, mediaUrl) => {
+  if (contentType) {
+    if (contentType.includes('video')) {
+      return 'mp4';
+    }
+    if (contentType.includes('png')) {
+      return 'png';
+    }
+    if (contentType.includes('gif')) {
+      return 'gif';
+    }
+    if (contentType.includes('webp')) {
+      return 'webp';
+    }
+  }
+  if (mediaUrl.includes('.mp4')) {
+    return 'mp4';
+  }
+  if (mediaUrl.includes('.png')) {
+    return 'png';
+  }
+  if (mediaUrl.includes('.gif')) {
+    return 'gif';
+  }
+  if (mediaUrl.includes('.webp')) {
+    return 'webp';
+  }
+  return 'jpg';
+};
+
+/**
+ * Serve static files (jika ada folder public, css, js, dll)
+ * -----------------------------------------------------------------------------
+ */
 app.use(BASE_PATH || '/', express.static('public'));
 
-// Serve index.html di root dengan base path injection
+/**
+ * Serve index.html and inject BASE_PATH for frontend runtime.
+ * -----------------------------------------------------------------------------
+ */
 app.get(route('/'), (req, res) => {
-  const fs = require('fs');
   let html = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
 
   // Inject BASE_PATH sebagai JavaScript variable
@@ -265,7 +394,9 @@ app.get(route('/'), (req, res) => {
   res.send(html);
 });
 
-// Proxy untuk load image/video dari Instagram
+/**
+ * Proxy endpoint to stream Instagram image/video.
+ */
 app.get(route('/load'), async (req, res) => {
   try {
     const imageUrl = req.query.url;
@@ -277,10 +408,7 @@ app.get(route('/load'), async (req, res) => {
     // Fetch image/video dari URL Instagram
     const response = await axios.get(imageUrl, {
       responseType: 'stream',
-      headers: {
-        'Referer': 'https://www.instagram.com/',
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-      }
+      headers: defaultHeaders
     });
 
     // Set appropriate headers
@@ -296,7 +424,9 @@ app.get(route('/load'), async (req, res) => {
   }
 });
 
-// Download endpoint
+/**
+ * Aggregate profile media by username (profile photo, story, highlight, feed).
+ */
 app.get(route('/profile'), async (req, res) => {
   try {
     const username = (req.query.username || '').toString().trim().replace(/^@/, '');
@@ -382,7 +512,9 @@ app.get(route('/profile'), async (req, res) => {
   }
 });
 
-// Download endpoint
+/**
+ * Download endpoint for proxied media with filename + extension.
+ */
 app.get(route('/download'), async (req, res) => {
   try {
     const mediaUrl = req.query.url;
@@ -395,26 +527,11 @@ app.get(route('/download'), async (req, res) => {
     // Fetch media dari URL Instagram
     const response = await axios.get(mediaUrl, {
       responseType: 'stream',
-      headers: {
-        'Referer': 'https://www.instagram.com/',
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-      }
+      headers: defaultHeaders
     });
 
-    // Determine file extension dari content-type atau URL
-    let extension = 'jpg';
     const contentType = response.headers['content-type'];
-    if (contentType) {
-      if (contentType.includes('video')) {
-        extension = 'mp4';
-      } else if (contentType.includes('png')) {
-        extension = 'png';
-      } else if (contentType.includes('gif')) {
-        extension = 'gif';
-      }
-    } else if (mediaUrl.includes('.mp4')) {
-      extension = 'mp4';
-    }
+    const extension = getMediaExtension(contentType, mediaUrl);
 
     // Set download headers
     res.setHeader('Content-Disposition', `attachment; filename="${filename}.${extension}"`);
@@ -429,6 +546,9 @@ app.get(route('/download'), async (req, res) => {
   }
 });
 
+/**
+ * Start HTTP server.
+ */
 app.listen(PORT, () => {
   console.log(`🚀 Server running at http://localhost:${PORT}${BASE_PATH || ''}`);
   console.log(`📱 Open your browser and navigate to http://localhost:${PORT}${BASE_PATH || ''}`);

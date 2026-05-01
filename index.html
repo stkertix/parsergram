@@ -152,12 +152,6 @@
                       </template>
                     </v-img>
 
-                    <v-card-text v-if="false">
-                      <div v-if="false" class="text-medium-emphasis">
-                        well meaning and kindly.<br>
-                        "a benevolent smile"
-                      </div>
-                    </v-card-text>
                   </v-card>
                 </v-col>
               </template>
@@ -250,13 +244,6 @@
             </v-card-actions>
           </v-card>
 
-          <v-card v-if="false && result[preview.selected.index].video != undefined">
-            <video height="100%" controls>
-              <source :src="getPath('/load?url=') + encodeURIComponent(result[preview.selected.index].video.url)"
-                type="video/mp4">
-              Your browser does not support HTML video.
-            </video>
-          </v-card>
         </v-dialog>
 
         <!-- ---------------------------------------------------------------- -->
@@ -268,32 +255,20 @@
   </div>
 
   <script>
-    const { createApp, ref } = Vue
+    const { createApp } = Vue
     const { createVuetify } = Vuetify
 
     const vuetify = createVuetify()
-
-    console.log('Moment version:', window.moment?.version)
 
     const app = createApp({
       data() {
         return {
           jsonString: "",
-
-          radios: 'info',
-          text: {
-            info: '',
-            query: '',
-          },
-
-          data: "",
-          json: null,
           result: [],
 
           preview: {
             selected: {
               index: 0,
-              data: {},
             },
             isDragging: false,
             isShow: false,
@@ -303,12 +278,6 @@
             start: { x: 0, y: 0, },
           },
 
-          info: {
-            items: [],
-          },
-          query: {
-            items: [],
-          },
           username: '',
           usernameLoading: false,
           usernameError: '',
@@ -317,47 +286,23 @@
       },
 
       watch: {
-        data: function () {
-          this.result = [];
-
-          switch (this.radios) {
-            case "info":
-              this.parseInfo();
-              break;
-
-            case "query":
-              this.parseQuery();
-              break;
-
-            default:
-              break;
-          }
-        },
-
         jsonString: function (value) {
             if (!value || value.trim() === "") {
               this.result = [];
-              this.info.items = [];
-              this.query.items = [];
               this.preview.isShow = false;
               this.preview.selected.index = 0;
-              this.preview.selected.data = {};
               return false;
             }
 
             let json = null;
             try {
-              json = this.jsonString != "" ? JSON.parse(this.jsonString) : null;
+              json = JSON.parse(value);
             } catch (e) {
               this.usernameError = 'Format JSON tidak valid';
               return false;
             }
             if (!json) return false;
             this.usernameError = '';
-
-            console.log('jsonString', JSON.parse(this.jsonString));
-            // console.log('json.data', json.data);
-            // console.log('json.data.data', json.data.data);
 
             if (json.data != undefined && json.data.xdt_api__v1__feed__reels_media != undefined) {
               this.parserData(json, "xdt_api__v1__feed__reels_media");
@@ -379,24 +324,6 @@
         'preview.isShow': function (val) {
           if (val) window.addEventListener('keydown', this.handleKey)
           else window.removeEventListener('keydown', this.handleKey)
-        },
-
-        'radios': function () {
-          this.data = "";
-          this.result = [];
-
-          this.text.info = '';
-          this.text.query = '';
-          this.info.items = [];
-          this.query.items = [];
-        },
-
-        'text.info': function (value) {
-          this.parseInfo();
-        },
-
-        'text.query': function (value) {
-          this.parseQuery();
         },
       },
 
@@ -469,7 +396,6 @@
                             }
                         }
 
-                        this.query.items.push(o);
                         this.result.push(o);
                     });
                     break;
@@ -490,8 +416,6 @@
                             },
                             };
 
-                            console.log('item', item)
-
                             if (item.video_versions) {
                             o.video = {
                                 url: item.video_versions[0].url,
@@ -500,7 +424,6 @@
                             }
                             }
 
-                            this.query.items.push(o);
                             this.result.push(o);
                         });
                     });
@@ -511,8 +434,6 @@
                     json.items.forEach(item => {
                       // Carousel Content
                       if (item.carousel_media) {
-                        console.log('Carousel Content');
-
                         item.carousel_media.forEach((cm, idx) => {
                           let sequence = String(idx + 1).padStart(3, '0');
 
@@ -536,14 +457,12 @@
                             }
                           }
 
-                          this.info.items.push(o);
                           this.result.push(o);
                         });
                       }
 
                       // Single Content - Video
                       else if (item.video_versions) {
-                        console.log('Single Content | Video');
                         let o = {
                           id: item.id,
                           username: item.user.username,
@@ -561,12 +480,10 @@
                           }
                         };
 
-                        this.info.items.push(o);
                         this.result.push(o);
                       }
 
                       else if (item.image_versions2) {
-                        console.log('Single Content | Image');
                         let o = {
                           id: item.id,
                           username: item.user.username,
@@ -579,19 +496,13 @@
                           }
                         };
 
-                        this.info.items.push(o);
                         this.result.push(o);
                       }
 
                     });
                     break;
 
-                case "threads":
-                  
-                  break;
-
                 default:
-                  console.log('Unknown type');
                   break;
             }
             
@@ -600,230 +511,15 @@
         /**
          * -----------------------------------------------------------------------
          * */
-        parseInfo() {
-          this.result = [];
-          this.info.items = [];
-          let json = this.data != "" ? JSON.parse(this.data) : null;
-
-          if (!json) return false;
-
-          json.items.forEach(item => {
-            // Carousel Content
-            if (item.carousel_media) {
-              console.log('Carousel Content');
-
-              item.carousel_media.forEach((cm, idx) => {
-                let sequence = String(idx + 1).padStart(3, '0');
-
-                let o = {
-                  id: cm.id,
-                  username: item.user.username,
-                  taken_at: moment.unix(cm.taken_at).format('YYYYMMDD-HHmmss') + '-' + sequence,
-                  filename: item.user.username + "-" + moment.unix(cm.taken_at).format('YYYYMMDD-HHmmss') + '-' + sequence,
-                  image: {
-                    url: cm.image_versions2.candidates[0].url,
-                    height: cm.image_versions2.candidates[0].height,
-                    width: cm.image_versions2.candidates[0].width,
-                  },
-                };
-
-                if (cm.video_versions) {
-                  o.video = {
-                    url: cm.video_versions[0].url,
-                    height: cm.video_versions[0].height,
-                    width: cm.video_versions[0].width,
-                  }
-                }
-
-                this.info.items.push(o);
-                this.result.push(o);
-              });
-            }
-
-            // Single Content - Video
-            else if (item.video_versions) {
-              console.log('Single Content | Video');
-              let o = {
-                id: item.id,
-                username: item.user.username,
-                taken_at: moment.unix(item.taken_at).format('YYYYMMDD-HHmmss'),
-                filename: item.user.username + "-" + moment.unix(item.taken_at).format('YYYYMMDD-HHmmss'),
-                image: {
-                  url: item.image_versions2.candidates[0].url,
-                  height: item.image_versions2.candidates[0].height,
-                  width: item.image_versions2.candidates[0].width,
-                },
-                video: {
-                  url: item.video_versions[0].url,
-                  height: item.video_versions[0].height,
-                  width: item.video_versions[0].width,
-                }
-              };
-
-              this.info.items.push(o);
-              this.result.push(o);
-            }
-
-            else if (item.image_versions2) {
-              console.log('Single Content | Image');
-              let o = {
-                id: item.id,
-                username: item.user.username,
-                taken_at: moment.unix(item.taken_at).format('YYYYMMDD-HHmmss'),
-                filename: item.user.username + "-" + moment.unix(item.taken_at).format('YYYYMMDD-HHmmss'),
-                image: {
-                  url: item.image_versions2.candidates[0].url,
-                  height: item.image_versions2.candidates[0].height,
-                  width: item.image_versions2.candidates[0].width,
-                }
-              };
-
-              this.info.items.push(o);
-              this.result.push(o);
-            }
-
-          });
-        },
-
-        /**
-         * -----------------------------------------------------------------------
-         * */
-
-        parseQuery() {
-          this.result = [];
-          this.query.items = [];
-          let json = this.data != "" ? JSON.parse(this.data) : null;
-
-          if (!json) return false;
-
-          this.json = json;
-
-          //
-          if (json.data.xdt_api__v1__feed__reels_media__connection != undefined) {
-            json.data.xdt_api__v1__feed__reels_media__connection.edges.forEach(edge => {
-              edge.node.items.forEach(item => {
-                let o = {
-                  id: item.id,
-                  username: edge.node.user.username,
-                  taken_at: moment.unix(item.taken_at).format('YYYYMMDD-HHmmss'),
-                  filename: edge.node.user.username + "-" + moment.unix(item.taken_at).format('YYYYMMDD-HHmmss'),
-                  image: {
-                    url: item.image_versions2.candidates[0].url,
-                    height: item.image_versions2.candidates[0].height,
-                    width: item.image_versions2.candidates[0].width,
-                  },
-                };
-
-                console.log('item', item)
-
-                if (item.video_versions) {
-                  o.video = {
-                    url: item.video_versions[0].url,
-                    height: item.original_height,
-                    width: item.original_width,
-                  }
-                }
-
-                this.query.items.push(o);
-                this.result.push(o);
-              });
-            });
-          }
-
-          //
-          else if (json.data.xdt_api__v1__feed__reels_media != undefined) {
-            json.data.xdt_api__v1__feed__reels_media.reels_media[0].items.forEach(item => {
-              let o = {
-                id: item.id,
-                username: json.data.xdt_api__v1__feed__reels_media.reels_media[0].user.username,
-                taken_at: moment.unix(item.taken_at).format('YYYYMMDD-HHmmss'),
-                filename: json.data.xdt_api__v1__feed__reels_media.reels_media[0].user.username + "-" + moment.unix(item.taken_at).format('YYYYMMDD-HHmmss'),
-                image: {
-                  url: item.image_versions2.candidates[0].url,
-                  height: item.image_versions2.candidates[0].height,
-                  width: item.image_versions2.candidates[0].width,
-                },
-              };
-
-              if (item.video_versions) {
-                o.video = {
-                  url: item.video_versions[0].url,
-                  height: item.original_height,
-                  width: item.original_width,
-                }
-              }
-
-              this.query.items.push(o);
-              this.result.push(o);
-            });
-          }
-
-          else if (json.data.xdt_api__v1__feed__timeline__connection != undefined) {
-            json.data.xdt_api__v1__feed__timeline__connection.reels_media[0].items.forEach(item => {
-              let o = {
-                id: item.id,
-                username: json.data.xdt_api__v1__feed__reels_media.reels_media[0].user.username,
-                taken_at: moment.unix(item.taken_at).format('YYYYMMDD-HHmmss'),
-                filename: json.data.xdt_api__v1__feed__reels_media.reels_media[0].user.username + "-" + moment.unix(item.taken_at).format('YYYYMMDD-HHmmss'),
-                image: {
-                  url: item.image_versions2.candidates[0].url,
-                  height: item.image_versions2.candidates[0].height,
-                  width: item.image_versions2.candidates[0].width,
-                },
-              };
-
-              if (item.video_versions) {
-                o.video = {
-                  url: item.video_versions[0].url,
-                  height: item.original_height,
-                  width: item.original_width,
-                }
-              }
-
-              this.query.items.push(o);
-              this.result.push(o);
-            });
-          }
-        },
-
-        /**
-         * -----------------------------------------------------------------------
-         * */
-
-        openMedia(url) {
-          window.open(url, "_blank");
-        },
-
-        /**
-         * -----------------------------------------------------------------------
-         * */
 
         downloadMedia(mediaUrl, filename) {
-          console.log(this.result[this.preview.selected.index]);
-          console.log('mediaUrl', mediaUrl);
-          console.log('filename', filename);
-
           let params = [];
           params.push('url=' + encodeURIComponent(mediaUrl));
           params.push('filename=' + filename);
 
           let url = this.getPath('/download?') + params.join('&')
 
-          // window.open(url, "_blank");
           window.open(url);
-        },
-
-        /**
-         * -----------------------------------------------------------------------
-         * */
-
-        async pasteFromClipboard() {
-          try {
-            const text = await navigator.clipboard.readText();
-            this.pastedText = text;
-          } catch (err) {
-            alert('Gagal mengambil clipboard: ' + err);
-          }
         },
 
         /**
@@ -869,8 +565,6 @@
           this.preview.isShow = true;
           this.preview.pos = { x: 0, y: 0 };
           this.preview.start = { x: 0, y: 0 };
-
-          console.log(this.result[this.preview.selected.index]);
         },
 
         previous() {
@@ -891,12 +585,6 @@
           };
         },
 
-        closeImage() {
-          this.preview.isShow = false;
-          this.preview.selected.index = 0;
-          this.preview.selected.data = {};
-        },
-
         resetZoom() {
           this.preview.zoom = 1;
           this.preview.pos = { x: 0, y: 0 };
@@ -915,8 +603,6 @@
         },
 
         startDrag(e) {
-          console.log('this.preview.isDragging', this.preview.isDragging);
-
           if (!this.preview.isDragging) {
             if (this.preview.zoom <= 1) return;
             this.preview.isDragging = true;
@@ -967,9 +653,6 @@
             default:
               break;
           }
-          // if (e.key === 'ArrowRight') this.next();
-          // if (e.key === 'ArrowLeft') this.previous()
-          // if (e.key === 'Escape') this.preview.isShow = false
         },
 
         /**
@@ -978,9 +661,7 @@
          * */
 
         resetData() {
-          this.data = "";
           this.result = [];
-          this.json = {};
           this.jsonString = "";
         },
       },
