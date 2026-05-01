@@ -416,7 +416,7 @@
 
         saveSearchHistory(username) {
           if (!username) return;
-          this.searchHistory = [username, ...this.searchHistory.filter(item => item !== username)].slice(0, 10);
+          this.searchHistory = [username, ...this.searchHistory.filter(item => item !== username)].slice(0, 100);
           localStorage.setItem('searchHistory', JSON.stringify(this.searchHistory));
         },
 
@@ -994,7 +994,7 @@
           if (Array.isArray(parsed)) {
             this.searchHistory = parsed
               .filter(item => typeof item === 'string' && item.trim() !== '')
-              .slice(0, 10);
+              .slice(0, 100);
           }
         } catch (e) {
           this.searchHistory = [];
