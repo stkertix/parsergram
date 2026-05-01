@@ -457,6 +457,119 @@ const toApiFeedItem = (feedItem, fallbackUsername) => {
 };
 
 /**
+ * Parse Instagram post / reel / tv URL into path kind and shortcode.
+ * -----------------------------------------------------------------------------
+ * @param {string} rawUrl - Full Instagram URL.
+ * @returns {{ kind: string, shortcode: string }|null} Parsed parts or null.
+ */
+const parseInstagramPostUrl = (rawUrl) => {
+  try {
+    const u = new URL(rawUrl.trim());
+    const segments = u.pathname.replace(/\/$/, '').split('/').filter(Boolean);
+    const typeIndex = segments.findIndex((s) => s === 'p' || s === 'reel' || s === 'tv');
+    if (typeIndex === -1 || !segments[typeIndex + 1]) {
+      return null;
+    }
+    const kind = segments[typeIndex];
+    const shortcode = segments[typeIndex + 1].split('?')[0];
+    if (!shortcode) {
+      return null;
+    }
+    return { kind, shortcode };
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * Extract numeric media pk from Instagram post HTML (public page).
+ * -----------------------------------------------------------------------------
+ * @param {string} html - HTML document.
+ * @returns {string|null} Media pk or null.
+ */
+const extractMediaPkFromPostHtml = (html) => {
+  if (!html || typeof html !== 'string') {
+    return null;
+  }
+  const deepLink = html.match(/instagram:\/\/media\?id=(\d+)/);
+  if (deepLink) {
+    return deepLink[1];
+  }
+  const mediaId = html.match(/"media_id":"(\d+)"/);
+  if (mediaId) {
+    return mediaId[1];
+  }
+  return null;
+};
+
+/**
+ * Fetch public Instagram post page HTML (for scraping media id).
+ * -----------------------------------------------------------------------------
+ * @param {string} shortcode - Post shortcode.
+ * @param {string} kind - Path segment: p, reel, or tv.
+ * @returns {Promise<string>} HTML body.
+ */
+const fetchInstagramPostHtml = async (shortcode, kind) => {
+  const slug = kind === 'reel' || kind === 'tv' ? kind : 'p';
+  const pageUrl = `https://www.instagram.com/${slug}/${shortcode}/`;
+  const response = await axios.get(pageUrl, {
+    timeout: 20000,
+    headers: defaultHeaders
+  });
+  return response.data;
+};
+
+/**
+ * Resolve a single post/reel URL into normalized items for the frontend parser.
+ * -----------------------------------------------------------------------------
+ * @param {string} rawUrl - Instagram post URL.
+ * @returns {Promise<object[]>} Array with one normalized item (carousel expanded in item).
+ */
+const resolveInstagramPostItems = async (rawUrl) => {
+  const parsed = parseInstagramPostUrl(rawUrl);
+  if (!parsed) {
+    const err = new Error('Invalid Instagram post URL');
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const html = await fetchInstagramPostHtml(parsed.shortcode, parsed.kind);
+  const mediaPk = extractMediaPkFromPostHtml(html);
+  if (!mediaPk) {
+    const err = new Error('Could not resolve media id (private post, login required, or page changed)');
+    err.statusCode = 404;
+    throw err;
+  }
+
+  const mediaResponse = await igGet(`https://www.instagram.com/api/v1/media/${mediaPk}/info/`, {
+    timeout: 20000
+  });
+  const payload = mediaResponse.data;
+  if (!payload || typeof payload === 'string') {
+    const err = new Error('Instagram media API returned an unexpected response; try setting IG_COOKIE');
+    err.statusCode = 502;
+    throw err;
+  }
+
+  const rawItem = payload.items?.[0];
+  if (!rawItem) {
+    const err = new Error('Media not found');
+    err.statusCode = 404;
+    throw err;
+  }
+
+  const username = rawItem.user?.username || 'unknown';
+  const normalized = toApiFeedItem(rawItem, username);
+  if (!normalized) {
+    const err = new Error('Could not normalize media item');
+    err.statusCode = 422;
+    throw err;
+  }
+
+  return [normalized];
+};
+
+/**
  * Get feed posts with fallback strategy across multiple IG endpoints.
  * @param {object} user - Instagram user object from web_profile_info.
  * @param {string} username - Requested username.
@@ -603,6 +716,30 @@ app.get(route('/load'), async (req, res) => {
   } catch (error) {
     console.error('Error loading media:', error.message);
     res.status(500).send('Error loading media: ' + error.message);
+  }
+});
+
+/**
+ * Resolve a single Instagram post/reel URL into { items } for the frontend parser.
+ */
+app.get(route('/post'), async (req, res) => {
+  try {
+    const rawUrl = (req.query.url || '').toString().trim();
+    if (!rawUrl) {
+      return res.status(400).json({ error: 'url parameter is required' });
+    }
+
+    const items = await resolveInstagramPostItems(rawUrl);
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    return res.status(200).json({ items });
+  } catch (error) {
+    const status = error.statusCode || 500;
+    console.error('Error resolving post URL:', error.message);
+    return res.status(status).json({
+      error: 'Failed to resolve Instagram post',
+      message: error.message
+    });
   }
 });
 
