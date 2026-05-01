@@ -103,59 +103,54 @@
 
         <v-card v-if="result.length > 0" class="pt-15 mb-5" color="" rounded="xl" variant="flat">
           <v-container>
-            <h1>Result: {{ result.length }}</h1>
+            <h1 class="text-h4 mb-6">Result: {{ result.length }}</h1>
 
-            <v-row>
-              <template v-for="(item, index) in result">
-                <v-col cols="6" md="4" xl="2">
-                  <v-card class="mb-3" rounded="xl" @click="showPreview(index)">
-                    <v-img cover :src="getPath('/load?url=') + encodeURIComponent(item.image.url)">
-                      <div class="fill-height bg-gradient"></div>
-
-                      <div class="position-absolute top-0 left-0 ps-3 pt-2 text-white text-shadow text-left">
-                        <p class="text-h6 font-weight-bold mb-0">{{ item.username }}</p>
-                        <small class="">{{ item.filename }}</small>
-                      </div>
-
-                      <div class="position-absolute top-0 right-0 pe-3 pt-2 text-white text-shadow text-left">
-                        <p class="text-h6 font-weight-bold mb-0">{{ index + 1 }}</p>
-                      </div>
-
-                      <div
-                        class="position-absolute bottom-0 right-0 pe-2 pb-2 text-white text-shadow text-left d-flex flex-column">
-                        <v-btn v-if="item.video" icon size="large" target="_blank" variant="text" :href="item.video.url"
-                          :text="item.video.height">
-                          <v-icon class="text-shadow" color="">fi-rr-play-alt</v-icon>
-                          <v-tooltip activator="parent" location="start">
-                            {{ item.video.width + " x " + item.video.height }}
-                          </v-tooltip>
-                        </v-btn>
-
-                        <v-btn variant="plain" icon @click="showPreview(index)">
-                          <v-icon class="text-shadow">fi-rr-eye</v-icon>
-                          <v-tooltip activator="parent" location="start">
-                            {{ item.image.width + " x " + item.image.height }}
-                          </v-tooltip>
-                        </v-btn>
-                        <v-btn variant="plain" icon @click="downloadMedia(item.image.url, item.filename)">
-                          <v-icon class="text-shadow">fi-rr-download</v-icon>
-                          <v-tooltip activator="parent" location="start">
-                            Download
-                          </v-tooltip>
-                        </v-btn>
-                      </div>
-
-                      <template v-slot:placeholder>
-                        <div class="d-flex align-center justify-center fill-height">
-                          <v-progress-circular color="primary" indeterminate></v-progress-circular>
+            <template v-for="block in resultSectionBlocks" :key="block.key">
+              <h2 class="text-h5 font-weight-medium mb-3">{{ block.title }}</h2>
+              <v-row :class="block.key === 'feed' ? '' : 'mb-8'">
+                <template v-for="{ item, index } in block.entries" :key="block.key + '-' + index">
+                  <v-col cols="6" md="4" xl="2">
+                    <v-card class="mb-3" rounded="xl" @click="showPreview(index)">
+                      <v-img cover :src="getPath('/load?url=') + encodeURIComponent(item.image.url)">
+                        <div class="fill-height bg-gradient"></div>
+                        <div class="position-absolute top-0 left-0 ps-3 pt-2 text-white text-shadow text-left">
+                          <p class="text-h6 font-weight-bold mb-0">{{ item.username }}</p>
+                          <small>{{ item.filename }}</small>
                         </div>
-                      </template>
-                    </v-img>
-
-                  </v-card>
-                </v-col>
-              </template>
-            </v-row>
+                        <div class="position-absolute top-0 right-0 pe-3 pt-2 text-white text-shadow text-left">
+                          <p class="text-h6 font-weight-bold mb-0">{{ index + 1 }}</p>
+                        </div>
+                        <div
+                          class="position-absolute bottom-0 right-0 pe-2 pb-2 text-white text-shadow text-left d-flex flex-column">
+                          <v-btn v-if="item.video" icon size="large" target="_blank" variant="text" :href="item.video.url"
+                            :text="item.video.height">
+                            <v-icon class="text-shadow" color="">fi-rr-play-alt</v-icon>
+                            <v-tooltip activator="parent" location="start">
+                              {{ item.video.width + " x " + item.video.height }}
+                            </v-tooltip>
+                          </v-btn>
+                          <v-btn variant="plain" icon @click.stop="showPreview(index)">
+                            <v-icon class="text-shadow">fi-rr-eye</v-icon>
+                            <v-tooltip activator="parent" location="start">
+                              {{ item.image.width + " x " + item.image.height }}
+                            </v-tooltip>
+                          </v-btn>
+                          <v-btn variant="plain" icon @click.stop="downloadMedia(item.image.url, item.filename)">
+                            <v-icon class="text-shadow">fi-rr-download</v-icon>
+                            <v-tooltip activator="parent" location="start">Download</v-tooltip>
+                          </v-btn>
+                        </div>
+                        <template v-slot:placeholder>
+                          <div class="d-flex align-center justify-center fill-height">
+                            <v-progress-circular color="primary" indeterminate></v-progress-circular>
+                          </div>
+                        </template>
+                      </v-img>
+                    </v-card>
+                  </v-col>
+                </template>
+              </v-row>
+            </template>
           </v-container>
         </v-card>
 
@@ -283,6 +278,45 @@
           usernameError: '',
           searchHistory: [],
         }
+      },
+
+      computed: {
+        /**
+         * Group result rows by media_kind for sectioned UI.
+         * Items without media_kind (legacy JSON) are treated as feed.
+         */
+        resultProfileEntries() {
+          return this.result
+            .map((item, index) => ({ item, index }))
+            .filter(({ item }) => item.media_kind === 'profile');
+        },
+        resultStoryEntries() {
+          return this.result
+            .map((item, index) => ({ item, index }))
+            .filter(({ item }) => item.media_kind === 'story');
+        },
+        resultHighlightEntries() {
+          return this.result
+            .map((item, index) => ({ item, index }))
+            .filter(({ item }) => item.media_kind === 'highlight');
+        },
+        resultFeedEntries() {
+          return this.result
+            .map((item, index) => ({ item, index }))
+            .filter(({ item }) => {
+              const k = item.media_kind;
+              return !k || k === 'feed' || (k !== 'profile' && k !== 'story' && k !== 'highlight');
+            });
+        },
+        /** Non-empty sections: Profile → Story → Highlight → Post feed. */
+        resultSectionBlocks() {
+          return [
+            { key: 'profile', title: 'Profile', entries: this.resultProfileEntries },
+            { key: 'story', title: 'Story', entries: this.resultStoryEntries },
+            { key: 'highlight', title: 'Highlight', entries: this.resultHighlightEntries },
+            { key: 'feed', title: 'Post feed', entries: this.resultFeedEntries }
+          ].filter((block) => block.entries.length > 0);
+        },
       },
 
       watch: {
