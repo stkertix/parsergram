@@ -15,14 +15,14 @@ app.use(BASE_PATH || '/', express.static('public'));
 app.get(route('/'), (req, res) => {
   const fs = require('fs');
   let html = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
-  
+
   // Inject BASE_PATH sebagai JavaScript variable
   const basePathScript = `
   <script>
     window.BASE_PATH = '${BASE_PATH || ''}';
   </script>`;
   html = html.replace('</head>', basePathScript + '</head>');
-  
+
   res.setHeader('Content-Type', 'text/html');
   res.send(html);
 });

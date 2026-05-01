@@ -80,7 +80,7 @@
             <v-row>
               <template v-for="(item, index) in result">
                 <v-col cols="6" md="4" xl="2">
-                  <v-card class="mb-3" rounded="xl">
+                  <v-card class="mb-3" rounded="xl" @click="showPreview(index)">
                     <v-img cover :src="getPath('/load?url=') + encodeURIComponent(item.image.url)">
                       <div class="fill-height bg-gradient"></div>
 
@@ -142,7 +142,7 @@
         <!-- ---------------------------------------------------------------- -->
         <!-- Preview Image -->
 
-        <v-dialog v-model="preview.isShow" max-width="90%">
+        <v-dialog v-model="preview.isShow" max-width="90%" scroll-strategy="none" :retain-focus="false">
           <v-card class="pa-2" color="black" rounded="xl">
             <v-card-text class="d-flex justify-center align-center rounded-xl" style="overflow:hidden;"
               @wheel.prevent="onScroll" @click="startDrag" @mousemove="onDrag">
@@ -175,8 +175,17 @@
 
             <v-card-actions class="justify-center">
               <div class="d-flex flex-column">
-                <div class="d-flex">
-                  <span>Filename: {{ result[preview.selected.index].filename }}</span>
+                <div class="d-flex flex-column justify-center align-center">
+                  <span>
+                    {{ result[preview.selected.index].filename }}
+                  </span>
+                  <span class="text-caption">
+                    {{
+                      preview.isVideo && result[preview.selected.index].video
+                        ? result[preview.selected.index].video.width + ' x ' + result[preview.selected.index].video.height
+                        : result[preview.selected.index].image.width + ' x ' + result[preview.selected.index].image.height
+                    }}
+                  </span>
                 </div>
                 <div class="d-flex">
                   <v-btn icon @click="previous()" :disabled="preview.selected.index == 0">
@@ -187,17 +196,17 @@
                     <v-icon color="white">fi-rr-arrow-small-right</v-icon>
                   </v-btn>
 
-                  <v-btn v-if="preview.isVideo" icon @click="preview.isVideo = false">
+                  <v-btn icon @click="preview.isVideo = false">
                     <v-icon color="white">fi-rr-picture</v-icon>
                   </v-btn>
 
-                  <v-btn v-if="!preview.isVideo" icon @click="preview.isVideo = true">
+                  <v-btn v-if="result[preview.selected.index].video !== undefined" icon
+                    @click="preview.isVideo = true">
                     <v-icon color="white">fi-rr-play-alt</v-icon>
                   </v-btn>
 
-
                   <v-btn icon
-                    @click="downloadMedia(result[preview.selected.index].image.url, result[preview.selected.index].filename)">
+                    @click="downloadMedia(preview.isVideo && result[preview.selected.index].video ? result[preview.selected.index].video.url : result[preview.selected.index].image.url, result[preview.selected.index].filename)">
                     <v-icon color="white">fi-rr-download</v-icon>
                   </v-btn>
 
@@ -295,10 +304,22 @@
         },
 
         jsonString: function (value) {
+            if (!value || value.trim() === "") {
+              this.result = [];
+              this.info.items = [];
+              this.query.items = [];
+              this.preview.isShow = false;
+              this.preview.selected.index = 0;
+              this.preview.selected.data = {};
+              return false;
+            }
+
             let json = this.jsonString != "" ? JSON.parse(this.jsonString) : null;
             if (!json) return false;
 
             console.log('jsonString', JSON.parse(this.jsonString));
+            // console.log('json.data', json.data);
+            // console.log('json.data.data', json.data.data);
 
             if (json.data != undefined && json.data.xdt_api__v1__feed__reels_media != undefined) {
               this.parserData(json, "xdt_api__v1__feed__reels_media");
@@ -307,6 +328,10 @@
             else if (json.data != undefined && json.data.xdt_api__v1__feed__reels_media__connection != undefined) {
               this.parserData(json, "xdt_api__v1__feed__reels_media__connection");
             }
+
+            // else if(json.data != undefined && json.data.data != undefined) {
+            //   this.parserData(json, "threads");
+            // }
             
             else {
               this.parserData(json, "feed");
@@ -500,6 +525,14 @@
 
                     });
                     break;
+
+                case "threads":
+                  
+                  break;
+
+                default:
+                  console.log('Unknown type');
+                  break;
             }
             
         },
@@ -751,6 +784,7 @@
         showPreview(index) {
           this.preview.zoom = 1;
           this.preview.selected.index = index;
+          this.preview.isVideo = false;
           this.preview.isShow = true;
           this.preview.pos = { x: 0, y: 0 };
           this.preview.start = { x: 0, y: 0 };
@@ -760,6 +794,7 @@
 
         previous() {
           this.preview.zoom = 1;
+          this.preview.isVideo = false;
           this.preview.pos = { x: 0, y: 0 };
           this.preview.start = { x: 0, y: 0 };
           if (this.preview.selected.index - 1 >= 0) this.preview.selected.index--;
@@ -767,9 +802,12 @@
 
         next() {
           this.preview.zoom = 1;
+          this.preview.isVideo = false;
           this.preview.pos = { x: 0, y: 0 };
           this.preview.start = { x: 0, y: 0 };
-          if (this.preview.selected.index + 1 < this.result.length) this.preview.selected.index++;
+          if (this.preview.selected.index + 1 < this.result.length) {
+            this.preview.selected.index++
+          };
         },
 
         closeImage() {
@@ -820,6 +858,14 @@
         handleKey(e) {
           if (!this.preview.isShow) return
 
+          if (e.key === 'Tab') {
+            if (this.result[this.preview.selected.index].video !== undefined) {
+              e.preventDefault();
+              this.preview.isVideo = !this.preview.isVideo;
+            }
+            return;
+          }
+
           switch (e.key) {
             case 'ArrowRight':
               this.next();
@@ -830,7 +876,9 @@
               break;
 
             case 'Enter':
-              let mediaUrl = this.result[this.preview.selected.index].image.url;
+              let mediaUrl = this.preview.isVideo && this.result[this.preview.selected.index].video
+                ? this.result[this.preview.selected.index].video.url
+                : this.result[this.preview.selected.index].image.url;
               let filename = this.result[this.preview.selected.index].filename;
               this.downloadMedia(mediaUrl, filename)
               break;
