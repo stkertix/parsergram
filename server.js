@@ -8,6 +8,69 @@ const BASE_PATH = process.env.BASE_PATH || '';
 // Helper function untuk membuat route dengan base path
 const route = (path) => BASE_PATH ? BASE_PATH + path : path;
 
+const defaultHeaders = {
+  'Referer': 'https://www.instagram.com/',
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+};
+
+const toImageCandidate = (node) => ({
+  url: node.display_url,
+  height: node.dimensions?.height || 0,
+  width: node.dimensions?.width || 0
+});
+
+const toVideoVersions = (node) => {
+  if (!node.is_video || !node.video_url) {
+    return undefined;
+  }
+  return [{
+    url: node.video_url,
+    height: node.dimensions?.height || 0,
+    width: node.dimensions?.width || 0
+  }];
+};
+
+const toMediaItem = (node, username) => {
+  const item = {
+    id: node.id,
+    taken_at: node.taken_at_timestamp,
+    user: { username },
+    image_versions2: {
+      candidates: [toImageCandidate(node)]
+    }
+  };
+
+  const videoVersions = toVideoVersions(node);
+  if (videoVersions) {
+    item.video_versions = videoVersions;
+  }
+
+  const children = node.edge_sidecar_to_children?.edges || [];
+  if (children.length > 0) {
+    item.carousel_media = children
+      .map((edge) => edge.node)
+      .filter((childNode) => childNode?.display_url)
+      .map((childNode) => {
+        const child = {
+          id: childNode.id,
+          taken_at: node.taken_at_timestamp,
+          image_versions2: {
+            candidates: [toImageCandidate(childNode)]
+          }
+        };
+
+        const childVideoVersions = toVideoVersions(childNode);
+        if (childVideoVersions) {
+          child.video_versions = childVideoVersions;
+        }
+
+        return child;
+      });
+  }
+
+  return item;
+};
+
 // Serve static files (jika ada folder public, css, js, dll)
 app.use(BASE_PATH || '/', express.static('public'));
 
@@ -55,6 +118,51 @@ app.get(route('/load'), async (req, res) => {
   } catch (error) {
     console.error('Error loading media:', error.message);
     res.status(500).send('Error loading media: ' + error.message);
+  }
+});
+
+// Download endpoint
+app.get(route('/profile'), async (req, res) => {
+  try {
+    const username = (req.query.username || '').toString().trim().replace(/^@/, '');
+    if (!username) {
+      return res.status(400).json({ error: 'username parameter is required' });
+    }
+
+    const response = await axios.get('https://www.instagram.com/api/v1/users/web_profile_info/', {
+      params: { username },
+      timeout: 20000,
+      headers: {
+        ...defaultHeaders,
+        'X-IG-App-ID': '936619743392459',
+        'X-Requested-With': 'XMLHttpRequest'
+      }
+    });
+
+    const user = response.data?.data?.user;
+    if (!user) {
+      return res.status(404).json({
+        error: 'Profile not found',
+        message: 'Instagram profile data is unavailable'
+      });
+    }
+
+    const edges = user.edge_owner_to_timeline_media?.edges || [];
+    const items = edges
+      .map((edge) => edge.node)
+      .filter((node) => node?.display_url)
+      .map((node) => toMediaItem(node, user.username || username));
+
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    return res.status(200).json({ items });
+  } catch (error) {
+    const status = error.response?.status || 500;
+    console.error('Error fetching profile:', error.message);
+    return res.status(status).json({
+      error: 'Failed to fetch profile data',
+      message: error.message
+    });
   }
 });
 
