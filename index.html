@@ -47,10 +47,9 @@
   <div id="app">
     <v-app>
       <v-app-bar>
-        <!-- ----------------------------------------------------------------- -->
-        <!-- Input -->
-        <v-container>
-          <v-row class="pt-5 ma-5">
+        <v-container :fluid="!$vuetify.display.mdAndUp" class="px-2 px-md-4">
+          <!-- Desktop: tiga field sejajar -->
+          <v-row v-if="$vuetify.display.mdAndUp" class="pt-5 ma-5">
             <v-col cols="12" md="3">
               <v-text-field density="compact" rounded="lg" variant="outlined" v-model="username"
                 label="Instagram username" placeholder="contoh: nasa" :loading="usernameLoading"
@@ -93,9 +92,76 @@
               </v-text-field>
             </v-col>
           </v-row>
+          <!-- Mobile: pilih jenis input + satu field -->
+          <v-row v-else class="py-2 align-center ma-0" no-gutters>
+            <v-col cols="auto" class="pe-2 flex-shrink-0">
+              <v-menu location="bottom start">
+                <template #activator="{ props: menuProps }">
+                  <v-btn v-bind="menuProps" variant="tonal" color="primary" size="small" class="text-none px-3">
+                    {{ inputModeLabel }}
+                    <v-icon end size="small">fi-rr-angle-small-down</v-icon>
+                  </v-btn>
+                </template>
+                <v-list density="compact" min-width="200">
+                  <v-list-item @click="mobileInputMode = 'username'">
+                    <template #prepend>
+                      <v-icon size="small">fi-rr-user</v-icon>
+                    </template>
+                    <v-list-item-title>Username</v-list-item-title>
+                  </v-list-item>
+                  <v-list-item @click="mobileInputMode = 'url'">
+                    <template #prepend>
+                      <v-icon size="small">fi-rr-link</v-icon>
+                    </template>
+                    <v-list-item-title>Post / Reel URL</v-list-item-title>
+                  </v-list-item>
+                  <v-list-item @click="mobileInputMode = 'json'">
+                    <template #prepend>
+                      <v-icon size="small">fi-rr-square-terminal</v-icon>
+                    </template>
+                    <v-list-item-title>Raw JSON</v-list-item-title>
+                  </v-list-item>
+                </v-list>
+              </v-menu>
+            </v-col>
+            <v-col class="flex-grow-1" style="min-width: 0">
+              <v-text-field v-if="mobileInputMode === 'username'" density="compact" rounded="lg" variant="outlined"
+                v-model="username" label="Instagram username" placeholder="contoh: nasa" :loading="usernameLoading"
+                :disabled="usernameLoading || postUrlLoading" hide-details @keyup.enter="getInstagramProfile()">
+                <template #prepend-inner>
+                  <v-icon class="me-2" size="x-small">fi-rr-user</v-icon>
+                </template>
+                <template #append-inner>
+                  <v-icon class="ms-2" size="x-small" :disabled="usernameLoading || postUrlLoading"
+                    @click="getInstagramProfile()">fi-rr-search</v-icon>
+                </template>
+              </v-text-field>
+              <v-text-field v-else-if="mobileInputMode === 'url'" density="compact" rounded="lg" variant="outlined"
+                v-model="postUrl" label="Post / Reel URL" placeholder="https://…" :loading="postUrlLoading"
+                :disabled="postUrlLoading || usernameLoading" hide-details @keyup.enter="getInstagramPostByUrl()">
+                <template #prepend-inner>
+                  <v-icon class="me-2" size="x-small">fi-rr-link</v-icon>
+                </template>
+                <template #append-inner>
+                  <v-icon class="ms-2" size="x-small" :disabled="postUrlLoading || usernameLoading"
+                    @click="getInstagramPostByUrl()">fi-rr-search</v-icon>
+                </template>
+              </v-text-field>
+              <v-text-field v-else density="compact" rounded="lg" variant="outlined" v-model="jsonString"
+                label="Raw JSON" hide-details>
+                <template #prepend-inner>
+                  <v-icon class="me-2" size="small">fi-rr-square-terminal</v-icon>
+                </template>
+                <template #append-inner>
+                  <v-icon class="ms-2" size="x-small" @click="resetData()">fi-rr-refresh</v-icon>
+                </template>
+              </v-text-field>
+            </v-col>
+          </v-row>
         </v-container>
       </v-app-bar>
 
+      <v-main>
       <v-container class="">
         <v-divider class="my-10"></v-divider>
 
@@ -260,6 +326,7 @@
         <!-- ---------------------------------------------------------------- -->
 
       </v-container>
+      </v-main>
     </v-app>
 
 
@@ -295,10 +362,16 @@
           postUrlLoading: false,
           usernameError: '',
           searchHistory: [],
+          /** mobile app bar: 'username' | 'url' | 'json' */
+          mobileInputMode: 'username',
         }
       },
 
       computed: {
+        inputModeLabel() {
+          const labels = { username: 'Username', url: 'URL', json: 'JSON' }
+          return labels[this.mobileInputMode] || 'Username'
+        },
         /**
          * Group result rows by media_kind for sectioned UI.
          * Items without media_kind (legacy JSON) are treated as feed.
