@@ -65,19 +65,22 @@
           <!-- Desktop: tiga field sejajar -->
           <v-row v-if="$vuetify.display.mdAndUp" class="pt-5 ma-5">
             <v-col cols="12" md="3">
-              <v-text-field density="compact" rounded="lg" variant="outlined" v-model="username"
-                label="Instagram username" placeholder="contoh: nasa" :loading="usernameLoading"
-                :disabled="usernameLoading || postUrlLoading" @keyup.enter="getInstagramProfile()">
+              <v-combobox autocomplete="off" v-model="username" :items="searchHistoryAutocompleteItems" item-title="title"
+                item-value="value" :auto-select-first="false" clearable hide-no-data density="compact" rounded="lg"
+                variant="outlined" label="Instagram username" placeholder="contoh: nasa" :loading="usernameLoading"
+                :disabled="usernameLoading || postUrlLoading" @update:model-value="onUsernameAutocompleteUpdate"
+                @keyup.enter="getInstagramProfile()"
+                close-text="">
                 <template #prepend-inner>
                   <v-icon class="me-2" size="x-small">fi-rr-user</v-icon>
                 </template>
                 <template #append-inner>
-                  <v-icon class="ms-2" size="x-small" :disabled="usernameLoading || postUrlLoading"
+                  <!-- <v-icon class="ms-2" size="x-small" :disabled="usernameLoading || postUrlLoading"
                     @click="getInstagramProfile()">
                     fi-rr-search
-                  </v-icon>
+                  </v-icon> -->
                 </template>
-              </v-text-field>
+              </v-combobox>
             </v-col>
             <v-col cols="12" md="5">
               <v-text-field density="compact" rounded="lg" variant="outlined" v-model="postUrl"
@@ -139,9 +142,11 @@
               </v-menu>
             </v-col>
             <v-col class="flex-grow-1" style="min-width: 0">
-              <v-text-field v-if="mobileInputMode === 'username'" density="compact" rounded="lg" variant="outlined"
-                v-model="username" label="Instagram username" placeholder="contoh: nasa" :loading="usernameLoading"
-                :disabled="usernameLoading || postUrlLoading" hide-details @keyup.enter="getInstagramProfile()">
+              <v-combobox v-if="mobileInputMode === 'username'" autocomplete="off" v-model="username"
+                :items="searchHistoryAutocompleteItems" item-title="title" item-value="value" :auto-select-first="false"
+                clearable hide-no-data density="compact" rounded="lg" variant="outlined" label="Instagram username"
+                placeholder="contoh: nasa" :loading="usernameLoading" :disabled="usernameLoading || postUrlLoading"
+                hide-details @update:model-value="onUsernameAutocompleteUpdate" @keyup.enter="getInstagramProfile()">
                 <template #prepend-inner>
                   <v-icon class="me-2" size="x-small">fi-rr-user</v-icon>
                 </template>
@@ -149,7 +154,7 @@
                   <v-icon class="ms-2" size="x-small" :disabled="usernameLoading || postUrlLoading"
                     @click="getInstagramProfile()">fi-rr-search</v-icon>
                 </template>
-              </v-text-field>
+              </v-combobox>
               <v-text-field v-else-if="mobileInputMode === 'url'" density="compact" rounded="lg" variant="outlined"
                 v-model="postUrl" label="Post / Reel URL" placeholder="https://…" :loading="postUrlLoading"
                 :disabled="postUrlLoading || usernameLoading" hide-details @keyup.enter="getInstagramPostByUrl()">
@@ -177,17 +182,6 @@
 
       <v-main>
       <v-container class="">
-        <v-divider class="my-10"></v-divider>
-
-        <div v-if="sortedSearchHistory.length > 0" class="d-flex align-center flex-wrap ga-2 mb-2">
-          <v-chip v-for="item in sortedSearchHistory" :key="item" size="small" variant="outlined" @click="useHistoryUsername(item)">
-            {{ item }}
-            <template #append>
-              <v-icon size="x-small" class="ms-1" @click.stop="removeSearchHistory(item)">fi-rr-cross-small</v-icon>
-            </template>
-          </v-chip>
-          <v-btn size="x-small" variant="text" @click="clearSearchHistory()">Clear</v-btn>
-        </div>
 
         <v-alert v-if="usernameError" type="error" variant="tonal" class="mt-3 mb-2" closable
           @click:close="usernameError = ''">
@@ -197,7 +191,7 @@
         <!-- ----------------------------------------------------------------- -->
         <!-- Result -->
 
-        <v-card v-if="result.length > 0" class="pt-15 mb-5" color="" rounded="xl" variant="flat">
+        <v-card v-if="result.length > 0" class="mb-5" color="" rounded="xl" variant="flat">
           <v-container>
             <h1 class="text-h4 mb-6">Result: {{ result.length }}</h1>
 
@@ -253,7 +247,7 @@
           </v-container>
         </v-card>
 
-        <v-divider class="my-5"></v-divider>
+
 
         <!-- ---------------------------------------------------------------- -->
         <!-- Preview Image -->
@@ -436,6 +430,30 @@
             a.localeCompare(b, undefined, { sensitivity: 'base' })
           );
         },
+        searchHistoryAutocompleteItems() {
+          const sorted = this.sortedSearchHistory;
+          if (sorted.length === 0) {
+            return [];
+          }
+
+          const items = [];
+          let currentLetter = '';
+
+          sorted.forEach((username) => {
+            const first = username.trim().charAt(0);
+            const letter = /[a-zA-Z]/.test(first) ? first.toUpperCase() : '#';
+            if (letter !== currentLetter) {
+              currentLetter = letter;
+              items.push({ type: 'subheader', title: letter });
+            }
+            items.push({ title: username, value: username });
+          });
+
+          items.push({ type: 'divider' });
+          items.push({ title: 'Clear search history', value: '__clear_history__' });
+
+          return items;
+        },
       },
 
       watch: {
@@ -500,20 +518,35 @@
           localStorage.setItem('searchHistory', JSON.stringify(this.searchHistory));
         },
 
-        removeSearchHistory(username) {
-          this.searchHistory = this.searchHistory.filter(item => item !== username);
-          localStorage.setItem('searchHistory', JSON.stringify(this.searchHistory));
-        },
-
         clearSearchHistory() {
           this.searchHistory = [];
           localStorage.removeItem('searchHistory');
         },
 
-        useHistoryUsername(username) {
-          if (this.usernameLoading) return;
-          this.username = username;
-          this.getInstagramProfile();
+        normalizeUsernameValue(value) {
+          if (value == null) return '';
+          if (typeof value === 'object') return value.value ?? value.title ?? '';
+          return String(value);
+        },
+
+        onUsernameAutocompleteUpdate(value) {
+          if (value === '__clear_history__') {
+            this.clearSearchHistory();
+            this.username = '';
+            return;
+          }
+
+          const normalized = this.normalizeUsernameValue(value);
+          const norm = (s) => (s || '').trim().replace(/^@/, '').toLowerCase();
+          const isExactHistoryPick = this.searchHistory.some(
+            (item) => item === normalized || norm(item) === norm(normalized)
+          );
+
+          this.username = normalized;
+
+          if (isExactHistoryPick && normalized && !this.usernameLoading) {
+            this.getInstagramProfile();
+          }
         },
 
         /**
