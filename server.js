@@ -629,6 +629,149 @@ const getReelItemsByReelId = async (reelId) => {
 };
 
 /**
+ * Normalize highlight reel id to reels_media format.
+ * -----------------------------------------------------------------------------
+ * @param {string|number} highlightId - Raw highlight id from API sources.
+ * @returns {string} Reel id in highlight:{id} format.
+ */
+const normalizeHighlightReelId = (highlightId) => {
+  const rawId = String(highlightId || '').trim();
+  if (!rawId) {
+    return '';
+  }
+  return rawId.startsWith('highlight:') ? rawId : `highlight:${rawId}`;
+};
+
+/**
+ * Fetch highlight tray entries from Instagram highlights_tray API.
+ * -----------------------------------------------------------------------------
+ * @param {string} userId - Instagram user id.
+ * @returns {Promise<Array<{id: string, title: string}>>} Highlight tray entries.
+ */
+const getHighlightTray = async (userId) => {
+  const trayResponse = await igGet(`https://www.instagram.com/api/v1/highlights/${userId}/highlights_tray/`, {
+    timeout: 20000
+  });
+  const tray = trayResponse.data?.tray || [];
+  return tray
+    .map((highlight) => ({
+      id: normalizeHighlightReelId(highlight.id),
+      title: highlight.title || 'Highlight'
+    }))
+    .filter((highlight) => highlight.id);
+};
+
+/**
+ * Fetch highlight tray entries from edge_highlight_reels (legacy fallback).
+ * -----------------------------------------------------------------------------
+ * @param {object} user - Instagram user object from web_profile_info.
+ * @returns {Array<{id: string, title: string}>} Highlight tray entries.
+ */
+const getHighlightTrayFromEdge = (user) => {
+  const highlightEdges = user.edge_highlight_reels?.edges || [];
+  return highlightEdges
+    .map((edge) => ({
+      id: normalizeHighlightReelId(edge?.node?.id),
+      title: edge?.node?.title || 'Highlight'
+    }))
+    .filter((highlight) => highlight.id);
+};
+
+/**
+ * Fetch highlight tray entries from GraphQL doc_id fallback.
+ * -----------------------------------------------------------------------------
+ * @param {string} userId - Instagram user id.
+ * @returns {Promise<Array<{id: string, title: string}>>} Highlight tray entries.
+ */
+const getHighlightTrayFromGraphQL = async (userId) => {
+  const variables = JSON.stringify({
+    user_id: userId,
+    include_chaining: false,
+    include_reel: true,
+    include_suggested_users: false,
+    include_logged_out_extras: false,
+    include_highlight_reels: true,
+    include_related_profiles: false
+  });
+  const graphqlResponse = await igGet('https://www.instagram.com/graphql/query/', {
+    params: {
+      doc_id: '9532867876840543',
+      variables
+    },
+    timeout: 20000
+  });
+  const edges = graphqlResponse.data?.data?.highlights?.edges
+    || graphqlResponse.data?.data?.user?.edge_highlight_reels?.edges
+    || [];
+  return edges
+    .map((edge) => ({
+      id: normalizeHighlightReelId(edge?.node?.id),
+      title: edge?.node?.title || 'Highlight'
+    }))
+    .filter((highlight) => highlight.id);
+};
+
+/**
+ * Resolve highlight tray with layered fallbacks.
+ * -----------------------------------------------------------------------------
+ * @param {object} user - Instagram user object from web_profile_info.
+ * @returns {Promise<Array<{id: string, title: string}>>} Highlight tray entries.
+ */
+const resolveHighlightTray = async (user) => {
+  try {
+    const tray = await getHighlightTray(user.id);
+    if (tray.length > 0) {
+      return tray;
+    }
+  } catch (trayError) {
+    console.error('Highlight tray fetch skipped:', trayError.message);
+  }
+
+  const edgeTray = getHighlightTrayFromEdge(user);
+  if (edgeTray.length > 0) {
+    return edgeTray;
+  }
+
+  try {
+    return await getHighlightTrayFromGraphQL(user.id);
+  } catch (graphqlError) {
+    console.error('Highlight GraphQL fallback skipped:', graphqlError.message);
+    return [];
+  }
+};
+
+/**
+ * Fetch and normalize all highlight media items for a profile.
+ * -----------------------------------------------------------------------------
+ * @param {object} user - Instagram user object from web_profile_info.
+ * @param {string} username - Username fallback for normalized items.
+ * @returns {Promise<object[]>} Normalized highlight items.
+ */
+const fetchHighlightItemsForUser = async (user, username) => {
+  const tray = await resolveHighlightTray(user);
+  let highlightItems = [];
+
+  for (const highlight of tray) {
+    try {
+      const highlightRawItems = await getReelItemsByReelId(highlight.id);
+      const mapped = highlightRawItems
+        .map((highlightItem) => toReelMediaItem(highlightItem, user.username || username, 'highlight'))
+        .filter(Boolean)
+        .map((item) => ({
+          ...item,
+          highlight_title: highlight.title,
+          highlight_id: highlight.id
+        }));
+      highlightItems = highlightItems.concat(mapped);
+    } catch (highlightError) {
+      console.error(`Highlight fetch skipped (${highlight.id}):`, highlightError.message);
+    }
+  }
+
+  return highlightItems;
+};
+
+/**
  * Infer output file extension from content-type or source URL.
  * -----------------------------------------------------------------------------
  * @param {string|undefined} contentType - Response content type.
@@ -779,23 +922,10 @@ app.get(route('/profile'), async (req, res) => {
     }
 
     let highlightItems = [];
-    const highlightEdges = user.edge_highlight_reels?.edges || [];
-    if (highlightEdges.length > 0) {
-      for (const edge of highlightEdges) {
-        const highlightId = edge?.node?.id;
-        if (!highlightId) {
-          continue;
-        }
-        try {
-          const highlightRawItems = await getReelItemsByReelId(`highlight:${highlightId}`);
-          const mapped = highlightRawItems
-            .map((highlightItem) => toReelMediaItem(highlightItem, user.username || username, 'highlight'))
-            .filter(Boolean);
-          highlightItems = highlightItems.concat(mapped);
-        } catch (highlightError) {
-          console.error(`Highlight fetch skipped (${highlightId}):`, highlightError.message);
-        }
-      }
+    try {
+      highlightItems = await fetchHighlightItemsForUser(user, username);
+    } catch (highlightError) {
+      console.error('Highlight fetch skipped:', highlightError.message);
     }
 
     const profilePictureItem = toProfilePictureItem(user, user.username || username);

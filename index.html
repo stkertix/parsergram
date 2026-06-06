@@ -197,7 +197,60 @@
 
             <template v-for="block in resultSectionBlocks" :key="block.key">
               <h2 class="text-h5 font-weight-medium mb-3">{{ block.title }}</h2>
-              <v-row :class="block.key === 'feed' ? '' : 'mb-8'">
+
+              <template v-if="block.key === 'highlight'">
+                <template v-for="group in resultHighlightGroups" :key="block.key + '-' + group.title">
+                  <h3 class="text-subtitle-1 font-weight-medium mb-2 ms-1">{{ group.title }}</h3>
+                  <v-row class="mb-6">
+                    <template v-for="{ item, index } in group.entries" :key="block.key + '-' + group.title + '-' + index">
+                      <v-col cols="2">
+                        <v-card class="mb-3" rounded="xl" @click="showPreview(index)">
+                          <v-img cover :src="getPath('/load?url=') + encodeURIComponent(item.image.url)">
+                            <div class="fill-height bg-gradient"></div>
+                            <div class="position-absolute top-0 left-0 ps-3 pt-2 text-white text-shadow text-left">
+                              <p class="text-h6 font-weight-bold mb-0">{{ item.username }}</p>
+                              <small>{{ item.filename }}</small>
+                              <div class="text-caption mt-1 opacity-90">
+                                {{ item.highlight_title || item.media_kind || 'highlight' }}
+                              </div>
+                            </div>
+                            <div class="position-absolute top-0 right-0 pe-3 pt-2 text-white text-shadow text-left">
+                              <p class="text-h6 font-weight-bold mb-0">{{ index + 1 }}</p>
+                            </div>
+                            <div
+                              class="position-absolute bottom-0 right-0 pe-2 pb-2 text-white text-shadow text-left d-flex flex-column">
+                              <v-btn v-if="item.video" icon size="large" target="_blank" variant="text" :href="item.video.url"
+                                :text="item.video.height">
+                                <v-icon class="text-shadow" color="red">fi-rr-play-alt</v-icon>
+                                <v-tooltip activator="parent" location="start">
+                                  {{ item.video.width + " x " + item.video.height }}
+                                </v-tooltip>
+                              </v-btn>
+                              <v-btn variant="plain" icon @click.stop="showPreview(index)">
+                                <v-icon class="text-shadow">fi-rr-eye</v-icon>
+                                <v-tooltip activator="parent" location="start">
+                                  {{ item.image.width + " x " + item.image.height }}
+                                </v-tooltip>
+                              </v-btn>
+                              <v-btn variant="plain" icon @click.stop="downloadMedia(item.image.url, item.filename)">
+                                <v-icon class="text-shadow">fi-rr-download</v-icon>
+                                <v-tooltip activator="parent" location="start">Download</v-tooltip>
+                              </v-btn>
+                            </div>
+                            <template v-slot:placeholder>
+                              <div class="d-flex align-center justify-center fill-height">
+                                <v-progress-circular color="primary" indeterminate></v-progress-circular>
+                              </div>
+                            </template>
+                          </v-img>
+                        </v-card>
+                      </v-col>
+                    </template>
+                  </v-row>
+                </template>
+              </template>
+
+              <v-row v-else :class="block.key === 'feed' ? '' : 'mb-8'">
                 <template v-for="{ item, index } in block.entries" :key="block.key + '-' + index">
                   <v-col cols="6" md="4" xl="2">
                     <v-card class="mb-3" rounded="xl" @click="showPreview(index)">
@@ -408,6 +461,20 @@
             .map((item, index) => ({ item, index }))
             .filter(({ item }) => item.media_kind === 'highlight');
         },
+        /** Highlight albums grouped by highlight_title. */
+        resultHighlightGroups() {
+          const groups = new Map();
+
+          this.resultHighlightEntries.forEach((entry) => {
+            const title = entry.item.highlight_title || 'Highlight';
+            if (!groups.has(title)) {
+              groups.set(title, []);
+            }
+            groups.get(title).push(entry);
+          });
+
+          return Array.from(groups.entries()).map(([title, entries]) => ({ title, entries }));
+        },
         resultFeedEntries() {
           return this.result
             .map((item, index) => ({ item, index }))
@@ -553,6 +620,16 @@
          * Parse JSON Data
          * -----------------------------------------------------------------------
          * */
+        withHighlightMeta(o, source) {
+          if (source.highlight_title) {
+            o.highlight_title = source.highlight_title;
+          }
+          if (source.highlight_id) {
+            o.highlight_id = source.highlight_id;
+          }
+          return o;
+        },
+
         parserData(json, type) {
             if (!json) return false;
 
@@ -647,7 +724,7 @@
                             }
                           }
 
-                          this.result.push(o);
+                          this.result.push(this.withHighlightMeta(o, item));
                         });
                       }
 
@@ -671,7 +748,7 @@
                           media_kind: itemMediaKind,
                         };
 
-                        this.result.push(o);
+                        this.result.push(this.withHighlightMeta(o, item));
                       }
 
                       else if (item.image_versions2) {
@@ -688,7 +765,7 @@
                           media_kind: itemMediaKind,
                         };
 
-                        this.result.push(o);
+                        this.result.push(this.withHighlightMeta(o, item));
                       }
 
                     });
