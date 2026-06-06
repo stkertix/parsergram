@@ -19,19 +19,55 @@ export const PreviewDialog = {
   computed: {
     currentItem() {
       return this.result[this.preview.selected.index] || null;
+    },
+    displayIndex() {
+      return this.preview.selected.index + 1;
+    },
+    totalCount() {
+      return this.result.length;
+    },
+    activeDimensions() {
+      if (!this.currentItem) {
+        return '';
+      }
+      const source = this.preview.isVideo && this.currentItem.video
+        ? this.currentItem.video
+        : this.currentItem.image;
+      if (!source?.width || !source?.height) {
+        return '';
+      }
+      return source.width + ' × ' + source.height;
     }
   },
   template: `
     <v-dialog
+      class="ig-preview-dialog"
       :model-value="preview.isShow"
       @update:model-value="$emit('update:isShow', $event)"
-      max-width="90%"
+      fullscreen
+      transition="fade-transition"
       scroll-strategy="none"
       :retain-focus="false"
     >
-      <v-card class="pa-2" color="black" rounded="xl">
+      <v-card class="ig-preview-card fill-height d-flex flex-column" rounded="0">
+        <v-toolbar flat color="transparent" class="ig-preview-toolbar">
+          <v-btn icon variant="text" @click="$emit('update:isShow', false)">
+            <v-icon color="white">fi-rr-cross-small</v-icon>
+          </v-btn>
+          <v-toolbar-title class="text-white" style="min-width: 0;">
+            <div class="text-body-2 text-truncate">{{ currentItem?.filename || '' }}</div>
+            <div v-if="currentItem" class="ig-preview-meta text-truncate">
+              #{{ displayIndex }} / {{ totalCount }} · {{ activeDimensions }}
+            </div>
+          </v-toolbar-title>
+          <v-spacer />
+          <v-btn icon variant="text" @click="$emit('download')">
+            <v-icon color="white">fi-rr-download</v-icon>
+          </v-btn>
+        </v-toolbar>
+
         <v-card-text
-          class="d-flex justify-center align-center rounded-xl"
+          class="flex-grow-1 d-flex justify-center align-center pa-0"
           :class="{ 'preview-card-text--video': preview.isVideo }"
           :style="preview.isVideo ? {} : { overflow: 'hidden' }"
           @wheel.prevent="$emit('scroll', $event)"
@@ -51,70 +87,61 @@ export const PreviewDialog = {
               contain
               width="auto"
               max-width="100%"
-              max-height="80vh"
-              rounded="lg"
+              max-height="calc(100vh - 120px)"
+              rounded="0"
             >
               <template #placeholder>
                 <div class="d-flex align-center justify-center fill-height">
-                  <v-progress-circular color="primary" indeterminate></v-progress-circular>
+                  <v-progress-circular color="white" indeterminate />
                 </div>
               </template>
             </v-img>
 
-            <video v-if="preview.isVideo && currentItem && currentItem.video" class="preview-dialog-video rounded-lg" controls playsinline>
+            <video
+              v-if="preview.isVideo && currentItem && currentItem.video"
+              class="preview-dialog-video"
+              controls
+              playsinline
+            >
               <source :src="getPath('/load?url=') + encodeURIComponent(currentItem.video.url)" type="video/mp4">
               Your browser does not support HTML video.
             </video>
           </div>
-
-          <v-divider class="mx-5" vertical></v-divider>
         </v-card-text>
 
-        <v-card-actions class="justify-center" v-if="currentItem">
-          <div class="d-flex flex-column">
-            <div class="d-flex flex-column justify-center align-center">
-              <span>{{ currentItem.filename }}</span>
-              <span class="text-caption text-grey-lighten-1">
-                media_kind: {{ currentItem.media_kind || 'feed' }}
-              </span>
-              <span class="text-caption">
-                {{
-                  preview.isVideo && currentItem.video
-                    ? currentItem.video.width + ' x ' + currentItem.video.height
-                    : currentItem.image.width + ' x ' + currentItem.image.height
-                }}
-              </span>
-            </div>
-            <div class="d-flex">
-              <v-btn icon @click="$emit('previous')" :disabled="preview.selected.index == 0">
-                <v-icon color="white">fi-rr-arrow-small-left</v-icon>
-              </v-btn>
+        <v-card-actions
+          v-if="currentItem"
+          class="ig-preview-toolbar justify-center py-3"
+        >
+          <v-btn icon variant="text" @click="$emit('previous')" :disabled="preview.selected.index === 0">
+            <v-icon color="white">fi-rr-arrow-small-left</v-icon>
+          </v-btn>
 
-              <v-btn icon @click="$emit('next')" :disabled="preview.selected.index + 1 == result.length">
-                <v-icon color="white">fi-rr-arrow-small-right</v-icon>
-              </v-btn>
+          <v-btn icon variant="text" @click="$emit('set-image-mode')">
+            <v-icon color="white">fi-rr-picture</v-icon>
+          </v-btn>
 
-              <v-btn color="info" icon @click="$emit('set-image-mode')">
-                <v-icon color="info">fi-rr-picture</v-icon>
-              </v-btn>
+          <v-btn
+            v-if="currentItem.video !== undefined"
+            icon
+            variant="text"
+            @click="$emit('set-video-mode')"
+          >
+            <v-icon color="white">fi-rr-play-alt</v-icon>
+          </v-btn>
 
-              <v-btn v-if="currentItem.video !== undefined" color="red" icon @click="$emit('set-video-mode')">
-                <v-icon color="red">fi-rr-play-alt</v-icon>
-              </v-btn>
+          <v-btn icon variant="text" @click="$emit('reset-zoom')">
+            <v-icon color="white">fi-rr-refresh</v-icon>
+          </v-btn>
 
-              <v-btn icon @click="$emit('download')">
-                <v-icon color="white">fi-rr-download</v-icon>
-              </v-btn>
-
-              <v-btn icon @click="$emit('reset-zoom')">
-                <v-icon color="white">fi-rr-refresh</v-icon>
-              </v-btn>
-
-              <v-btn icon @click="$emit('update:isShow', false)">
-                <v-icon color="white">fi-rr-cross-small</v-icon>
-              </v-btn>
-            </div>
-          </div>
+          <v-btn
+            icon
+            variant="text"
+            @click="$emit('next')"
+            :disabled="preview.selected.index + 1 === result.length"
+          >
+            <v-icon color="white">fi-rr-arrow-small-right</v-icon>
+          </v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>

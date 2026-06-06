@@ -1,135 +1,214 @@
+import {
+  resultProfileBlock as buildResultProfileBlock,
+  resultFeedEntries,
+  resultStoryEntries,
+  resultHighlightGroups as buildResultHighlightGroups
+} from '../utils/resultGroups.js';
+
 export const ResultPanel = {
   props: {
     result: { type: Array, required: true },
-    resultProfileBlock: { type: Object, default: null },
-    expandableSectionBlocks: { type: Array, required: true },
-    resultHighlightGroups: { type: Array, required: true },
-    expandedSections: { type: Array, required: true },
-    expandedHighlightGroups: { type: Array, required: true },
     getPath: { type: Function, required: true },
-    getMediaImageSrc: { type: Function, required: true },
-    getMediaCardLabel: { type: Function, required: true },
-    isSectionExpanded: { type: Function, required: true },
-    isHighlightGroupExpanded: { type: Function, required: true }
+    getMediaImageSrc: { type: Function, required: true }
   },
-  emits: ['update:expandedSections', 'update:expandedHighlightGroups', 'preview', 'download'],
+  emits: ['preview', 'download'],
+  data() {
+    return {
+      activeTab: 'feed',
+      activeHighlightTitle: ''
+    };
+  },
   computed: {
-    localExpandedSections: {
-      get() {
-        return this.expandedSections;
+    profileBlock() {
+      return buildResultProfileBlock(this.result);
+    },
+    profileEntry() {
+      return this.profileBlock?.entries[0] || null;
+    },
+    feedEntries() {
+      return resultFeedEntries(this.result);
+    },
+    storyEntries() {
+      return resultStoryEntries(this.result);
+    },
+    highlightGroups() {
+      return buildResultHighlightGroups(this.result);
+    },
+    highlightCount() {
+      return this.highlightGroups.reduce((sum, group) => sum + group.entries.length, 0);
+    },
+    availableTabs() {
+      const tabs = [];
+      if (this.feedEntries.length > 0) {
+        tabs.push('feed');
+      }
+      if (this.storyEntries.length > 0) {
+        tabs.push('story');
+      }
+      if (this.highlightGroups.length > 0) {
+        tabs.push('highlight');
+      }
+      return tabs;
+    },
+    activeHighlightGroup() {
+      if (this.highlightGroups.length === 0) {
+        return null;
+      }
+      return this.highlightGroups.find((g) => g.title === this.activeHighlightTitle)
+        || this.highlightGroups[0];
+    }
+  },
+  watch: {
+    result: {
+      handler() {
+        this.resetTabs();
       },
-      set(value) {
-        this.$emit('update:expandedSections', value);
+      deep: true
+    }
+  },
+  mounted() {
+    this.resetTabs();
+  },
+  methods: {
+    resetTabs() {
+      const tabs = this.availableTabs;
+      if (!tabs.includes(this.activeTab)) {
+        this.activeTab = tabs[0] || 'feed';
+      }
+      if (this.highlightGroups.length > 0) {
+        this.activeHighlightTitle = this.highlightGroups[0].title;
+      } else {
+        this.activeHighlightTitle = '';
       }
     },
-    localExpandedHighlightGroups: {
-      get() {
-        return this.expandedHighlightGroups;
-      },
-      set(value) {
-        this.$emit('update:expandedHighlightGroups', value);
+    selectHighlight(title) {
+      this.activeHighlightTitle = title;
+    },
+    highlightCoverSrc(group) {
+      if (this.activeTab !== 'highlight') {
+        return '';
       }
+      const first = group.entries[0];
+      return first ? this.getMediaImageSrc(first.item) : '';
+    },
+    shouldLoadGridImages(tabKey, groupTitle) {
+      if (this.activeTab !== tabKey) {
+        return false;
+      }
+      if (tabKey === 'highlight') {
+        return groupTitle === this.activeHighlightTitle;
+      }
+      return true;
     }
   },
   template: `
-    <v-card v-if="result.length > 0" class="mb-5" rounded="xl" variant="flat">
-      <v-container>
-        <h1 class="text-h4 mb-6">Result: {{ result.length }}</h1>
+    <div v-if="result.length > 0">
+      <profile-header
+        :profile-entry="profileEntry"
+        :feed-count="feedEntries.length"
+        :story-count="storyEntries.length"
+        :highlight-count="highlightCount"
+        :get-path="getPath"
+        :get-media-image-src="getMediaImageSrc"
+      />
 
-        <template v-if="resultProfileBlock">
-          <h2 class="text-h5 font-weight-medium mb-3">{{ resultProfileBlock.title }}</h2>
-          <v-row class="mb-8">
+      <v-tabs
+        v-if="availableTabs.length > 0"
+        v-model="activeTab"
+        class="ig-tab-bar"
+        grow
+        height="44"
+      >
+        <v-tab v-if="feedEntries.length > 0" value="feed">
+          <v-icon start size="small">fi-rr-apps</v-icon>
+          Posts
+        </v-tab>
+        <v-tab v-if="storyEntries.length > 0" value="story">
+          <v-icon start size="small">fi-rr-circle</v-icon>
+          Story
+        </v-tab>
+        <v-tab v-if="highlightGroups.length > 0" value="highlight">
+          <v-icon start size="small">fi-rr-star</v-icon>
+          Highlight
+        </v-tab>
+      </v-tabs>
+
+      <v-window v-model="activeTab">
+        <v-window-item value="feed">
+          <div v-if="feedEntries.length > 0" class="ig-grid">
             <media-entry-card
-              v-for="{ item, index } in resultProfileBlock.entries"
-              :key="'profile-' + index"
+              v-for="{ item, index } in feedEntries"
+              :key="'feed-' + index"
               :item="item"
               :index="index"
-              :load-images="true"
-              :label="getMediaCardLabel(item)"
-              :cols="6"
-              :md="4"
-              :xl="2"
+              :load-images="shouldLoadGridImages('feed')"
               :get-path="getPath"
               :get-media-image-src="getMediaImageSrc"
               @preview="$emit('preview', $event)"
               @download="(url, filename) => $emit('download', url, filename)"
             />
-          </v-row>
-        </template>
+          </div>
+          <div v-else class="ig-section-empty">No posts.</div>
+        </v-window-item>
 
-        <v-expansion-panels
-          v-if="expandableSectionBlocks.length > 0"
-          v-model="localExpandedSections"
-          multiple
-          variant="accordion"
-          class="mb-4"
-        >
-          <v-expansion-panel
-            v-for="block in expandableSectionBlocks"
-            :key="block.key"
-            :value="block.key"
-          >
-            <v-expansion-panel-title>
-              {{ block.title }} ({{ block.entries.length }})
-            </v-expansion-panel-title>
-            <v-expansion-panel-text>
-              <template v-if="block.key === 'highlight'">
-                <v-expansion-panels
-                  v-model="localExpandedHighlightGroups"
-                  multiple
-                  variant="accordion"
-                  class="mt-2"
-                >
-                  <v-expansion-panel
-                    v-for="group in resultHighlightGroups"
-                    :key="block.key + '-' + group.title"
-                    :value="group.title"
-                  >
-                    <v-expansion-panel-title>
-                      {{ group.title }} ({{ group.entries.length }})
-                    </v-expansion-panel-title>
-                    <v-expansion-panel-text>
-                      <v-row>
-                        <media-entry-card
-                          v-for="{ item, index } in group.entries"
-                          :key="block.key + '-' + group.title + '-' + index"
-                          :item="item"
-                          :index="index"
-                          :load-images="isSectionExpanded('highlight') && isHighlightGroupExpanded(group.title)"
-                          :label="getMediaCardLabel(item)"
-                          :cols="2"
-                          :get-path="getPath"
-                          :get-media-image-src="getMediaImageSrc"
-                          @preview="$emit('preview', $event)"
-                          @download="(url, filename) => $emit('download', url, filename)"
-                        />
-                      </v-row>
-                    </v-expansion-panel-text>
-                  </v-expansion-panel>
-                </v-expansion-panels>
-              </template>
+        <v-window-item value="story">
+          <div v-if="storyEntries.length > 0" class="ig-grid">
+            <media-entry-card
+              v-for="{ item, index } in storyEntries"
+              :key="'story-' + index"
+              :item="item"
+              :index="index"
+              :load-images="shouldLoadGridImages('story')"
+              :get-path="getPath"
+              :get-media-image-src="getMediaImageSrc"
+              @preview="$emit('preview', $event)"
+              @download="(url, filename) => $emit('download', url, filename)"
+            />
+          </div>
+          <div v-else class="ig-section-empty">No stories.</div>
+        </v-window-item>
 
-              <v-row v-else>
-                <media-entry-card
-                  v-for="{ item, index } in block.entries"
-                  :key="block.key + '-' + index"
-                  :item="item"
-                  :index="index"
-                  :load-images="isSectionExpanded(block.key)"
-                  :label="getMediaCardLabel(item)"
-                  :cols="6"
-                  :md="4"
-                  :xl="2"
-                  :get-path="getPath"
-                  :get-media-image-src="getMediaImageSrc"
-                  @preview="$emit('preview', $event)"
-                  @download="(url, filename) => $emit('download', url, filename)"
+        <v-window-item value="highlight">
+          <div v-if="highlightGroups.length > 0" class="ig-highlight-row">
+            <button
+              v-for="group in highlightGroups"
+              :key="group.title"
+              type="button"
+              class="ig-highlight-item"
+              :class="{ 'ig-highlight-item--active': activeHighlightTitle === group.title }"
+              @click="selectHighlight(group.title)"
+            >
+              <div class="ig-highlight-ring">
+                <img
+                  v-if="highlightCoverSrc(group)"
+                  :src="highlightCoverSrc(group)"
+                  :alt="group.title"
+                  class="ig-highlight-ring__img"
                 />
-              </v-row>
-            </v-expansion-panel-text>
-          </v-expansion-panel>
-        </v-expansion-panels>
-      </v-container>
-    </v-card>
+                <div v-else class="ig-highlight-ring__img d-flex align-center justify-center">
+                  <v-progress-circular size="20" width="2" indeterminate />
+                </div>
+              </div>
+              <span class="ig-highlight-label">{{ group.title }}</span>
+            </button>
+          </div>
+
+          <div v-if="activeHighlightGroup" class="ig-grid">
+            <media-entry-card
+              v-for="{ item, index } in activeHighlightGroup.entries"
+              :key="'highlight-' + activeHighlightGroup.title + '-' + index"
+              :item="item"
+              :index="index"
+              :load-images="shouldLoadGridImages('highlight', activeHighlightTitle)"
+              :get-path="getPath"
+              :get-media-image-src="getMediaImageSrc"
+              @preview="$emit('preview', $event)"
+              @download="(url, filename) => $emit('download', url, filename)"
+            />
+          </div>
+          <div v-else class="ig-section-empty">No highlights.</div>
+        </v-window-item>
+      </v-window>
+    </div>
   `
 };

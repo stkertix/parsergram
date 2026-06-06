@@ -1,17 +1,13 @@
 import { getPath } from './utils/path.js';
 import { parserData } from './utils/parserData.js';
 import {
-  resultProfileBlock as buildResultProfileBlock,
-  expandableSectionBlocks as buildExpandableSectionBlocks,
-  resultHighlightGroups as buildResultHighlightGroups,
-  getMediaCardLabel
-} from './utils/resultGroups.js';
-import {
   loadSearchHistory,
   saveSearchHistory,
   clearSearchHistory,
   buildAutocompleteItems
 } from './utils/searchHistory.js';
+
+const THEME_STORAGE_KEY = 'parsergram-theme';
 
 export const App = {
   data() {
@@ -34,8 +30,7 @@ export const App = {
       usernameError: '',
       searchHistory: [],
       mobileInputMode: 'username',
-      expandedSections: [],
-      expandedHighlightGroups: [],
+      isDarkMode: false,
       highlightLoadDialog: {
         isShow: false,
         pendingUsername: ''
@@ -48,17 +43,12 @@ export const App = {
       const labels = { username: 'Username', url: 'URL', json: 'JSON' };
       return labels[this.mobileInputMode] || 'Username';
     },
-    resultProfileBlock() {
-      return buildResultProfileBlock(this.result);
-    },
-    expandableSectionBlocks() {
-      return buildExpandableSectionBlocks(this.result);
-    },
-    resultHighlightGroups() {
-      return buildResultHighlightGroups(this.result);
-    },
     searchHistoryAutocompleteItems() {
       return buildAutocompleteItems(this.searchHistory);
+    },
+    resultPanelKey() {
+      const first = this.result[0];
+      return this.result.length + '-' + (first?.item?.username || first?.username || '');
     }
   },
 
@@ -68,7 +58,6 @@ export const App = {
         this.result = [];
         this.preview.isShow = false;
         this.preview.selected.index = 0;
-        this.resetExpansionPanels();
         return false;
       }
 
@@ -76,7 +65,7 @@ export const App = {
       try {
         json = JSON.parse(value);
       } catch (_e) {
-        this.usernameError = 'Format JSON tidak valid';
+        this.usernameError = 'Invalid JSON format';
         return false;
       }
       if (!json) {
@@ -104,28 +93,25 @@ export const App = {
 
   methods: {
     getPath,
-    getMediaCardLabel,
 
     getMediaImageSrc(item) {
       return getPath('/load?url=') + encodeURIComponent(item.image.url);
     },
 
-    resetExpansionPanels() {
-      this.expandedSections = [];
-      this.expandedHighlightGroups = [];
+    applyTheme() {
+      const theme = this.isDarkMode ? 'dark' : 'light';
+      this.$vuetify.theme.global.name = theme;
+      document.documentElement.classList.toggle('theme-dark', this.isDarkMode);
+      localStorage.setItem(THEME_STORAGE_KEY, theme);
     },
 
-    isSectionExpanded(sectionKey) {
-      return this.expandedSections.includes(sectionKey);
-    },
-
-    isHighlightGroupExpanded(groupTitle) {
-      return this.expandedHighlightGroups.includes(groupTitle);
+    toggleTheme() {
+      this.isDarkMode = !this.isDarkMode;
+      this.applyTheme();
     },
 
     applyParserResult(parsedResult) {
       this.result = parsedResult;
-      this.resetExpansionPanels();
     },
 
     normalizeUsernameValue(value) {
@@ -169,7 +155,7 @@ export const App = {
     promptProfileLoad() {
       const username = (this.username || '').trim().replace(/^@/, '');
       if (!username) {
-        this.usernameError = 'Username Instagram wajib diisi';
+        this.usernameError = 'Instagram username is required';
         return;
       }
 
@@ -188,7 +174,7 @@ export const App = {
         .trim()
         .replace(/^@/, '');
       if (!username) {
-        this.usernameError = 'Username Instagram wajib diisi';
+        this.usernameError = 'Instagram username is required';
         return;
       }
 
@@ -197,7 +183,6 @@ export const App = {
       this.result = [];
       this.preview.isShow = false;
       this.preview.selected.index = 0;
-      this.resetExpansionPanels();
       this.usernameLoading = true;
 
       try {
@@ -214,7 +199,7 @@ export const App = {
         this.searchHistory = saveSearchHistory(this.searchHistory, username);
       } catch (error) {
         console.error('Gagal mengambil data profile:', error);
-        this.usernameError = 'Gagal mengambil data profile. Cek username atau coba lagi.';
+        this.usernameError = 'Failed to fetch profile. Check the username or try again.';
       } finally {
         this.usernameLoading = false;
         this.highlightLoadDialog.pendingUsername = '';
@@ -224,11 +209,11 @@ export const App = {
     async getInstagramPostByUrl() {
       const url = (this.postUrl || '').trim();
       if (!url) {
-        this.usernameError = 'URL post Instagram wajib diisi';
+        this.usernameError = 'Instagram post URL is required';
         return;
       }
       if (!/instagram\.com\//i.test(url)) {
-        this.usernameError = 'Gunakan URL Instagram (post / reel / tv)';
+        this.usernameError = 'Use an Instagram URL (post, reel, or tv)';
         return;
       }
 
@@ -236,7 +221,6 @@ export const App = {
       this.result = [];
       this.preview.isShow = false;
       this.preview.selected.index = 0;
-      this.resetExpansionPanels();
       this.postUrlLoading = true;
 
       try {
@@ -250,7 +234,7 @@ export const App = {
         this.jsonString = JSON.stringify(data);
       } catch (error) {
         console.error('Gagal mengambil post:', error);
-        this.usernameError = error.message || 'Gagal mengambil post. Cek URL atau coba lagi.';
+        this.usernameError = error.message || 'Failed to fetch post. Check the URL or try again.';
       } finally {
         this.postUrlLoading = false;
       }
@@ -369,12 +353,14 @@ export const App = {
     resetData() {
       this.result = [];
       this.jsonString = '';
-      this.resetExpansionPanels();
     }
   },
 
   mounted() {
     this.searchHistory = loadSearchHistory();
+    const saved = localStorage.getItem(THEME_STORAGE_KEY);
+    this.isDarkMode = saved === 'dark';
+    this.applyTheme();
   },
 
   beforeUnmount() {
@@ -382,7 +368,7 @@ export const App = {
   },
 
   template: `
-    <v-app>
+    <v-app class="ig-app-shell">
       <app-bar-inputs
         v-model:username="username"
         v-model:post-url="postUrl"
@@ -392,14 +378,16 @@ export const App = {
         :post-url-loading="postUrlLoading"
         :search-history-autocomplete-items="searchHistoryAutocompleteItems"
         :input-mode-label="inputModeLabel"
+        :is-dark-mode="isDarkMode"
         @username-autocomplete-update="onUsernameAutocompleteUpdate"
         @prompt-profile="promptProfileLoad"
         @fetch-post="getInstagramPostByUrl"
         @reset-data="resetData"
+        @toggle-theme="toggleTheme"
       />
 
       <v-main>
-        <v-container>
+        <div class="ig-main-column">
           <v-alert
             v-if="usernameError"
             type="error"
@@ -419,20 +407,27 @@ export const App = {
           />
 
           <result-panel
+            v-if="result.length > 0"
+            :key="resultPanelKey"
             :result="result"
-            :result-profile-block="resultProfileBlock"
-            :expandable-section-blocks="expandableSectionBlocks"
-            :result-highlight-groups="resultHighlightGroups"
-            v-model:expanded-sections="expandedSections"
-            v-model:expanded-highlight-groups="expandedHighlightGroups"
             :get-path="getPath"
             :get-media-image-src="getMediaImageSrc"
-            :get-media-card-label="getMediaCardLabel"
-            :is-section-expanded="isSectionExpanded"
-            :is-highlight-group-expanded="isHighlightGroupExpanded"
             @preview="showPreview"
             @download="downloadMedia"
           />
+
+          <div
+            v-else-if="!usernameLoading && !postUrlLoading"
+            class="ig-empty-state"
+          >
+            <v-icon size="48">fi-rr-search</v-icon>
+            <p>Search for an Instagram username to get started</p>
+          </div>
+
+          <div v-else class="ig-empty-state">
+            <v-progress-circular indeterminate size="40" width="3" />
+            <p>Loading…</p>
+          </div>
 
           <preview-dialog
             :preview="preview"
@@ -449,7 +444,7 @@ export const App = {
             @set-image-mode="preview.isVideo = false"
             @set-video-mode="preview.isVideo = true"
           />
-        </v-container>
+        </div>
       </v-main>
     </v-app>
   `
