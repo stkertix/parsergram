@@ -69,7 +69,7 @@
                 item-value="value" :auto-select-first="false" clearable hide-no-data density="compact" rounded="lg"
                 variant="outlined" label="Instagram username" placeholder="contoh: nasa" :loading="usernameLoading"
                 :disabled="usernameLoading || postUrlLoading" @update:model-value="onUsernameAutocompleteUpdate"
-                @keyup.enter="getInstagramProfile()"
+                @keyup.enter="promptProfileLoad()"
                 close-text="">
                 <template #prepend-inner>
                   <v-icon class="me-2" size="x-small">fi-rr-user</v-icon>
@@ -146,13 +146,13 @@
                 :items="searchHistoryAutocompleteItems" item-title="title" item-value="value" :auto-select-first="false"
                 clearable hide-no-data density="compact" rounded="lg" variant="outlined" label="Instagram username"
                 placeholder="contoh: nasa" :loading="usernameLoading" :disabled="usernameLoading || postUrlLoading"
-                hide-details @update:model-value="onUsernameAutocompleteUpdate" @keyup.enter="getInstagramProfile()">
+                hide-details @update:model-value="onUsernameAutocompleteUpdate" @keyup.enter="promptProfileLoad()">
                 <template #prepend-inner>
                   <v-icon class="me-2" size="x-small">fi-rr-user</v-icon>
                 </template>
                 <template #append-inner>
                   <v-icon class="ms-2" size="x-small" :disabled="usernameLoading || postUrlLoading"
-                    @click="getInstagramProfile()">fi-rr-search</v-icon>
+                    @click="promptProfileLoad()">fi-rr-search</v-icon>
                 </template>
               </v-combobox>
               <v-text-field v-else-if="mobileInputMode === 'url'" density="compact" rounded="lg" variant="outlined"
@@ -188,6 +188,21 @@
           {{ usernameError }}
         </v-alert>
 
+        <v-dialog v-model="highlightLoadDialog.isShow" max-width="480" persistent>
+          <v-card rounded="xl">
+            <v-card-title class="text-h6">Muat Highlight?</v-card-title>
+            <v-card-text>
+              Highlight bisa berisi banyak album dan media, sehingga loading lebih lama.
+              Muat highlight juga untuk <strong>@{{ highlightLoadDialog.pendingUsername }}</strong>?
+            </v-card-text>
+            <v-card-actions class="px-4 pb-4">
+              <v-spacer></v-spacer>
+              <v-btn variant="tonal" @click="confirmProfileLoad(false)">Lewati</v-btn>
+              <v-btn color="primary" variant="flat" @click="confirmProfileLoad(true)">Muat Highlight</v-btn>
+            </v-card-actions>
+          </v-card>
+        </v-dialog>
+
         <!-- ----------------------------------------------------------------- -->
         <!-- Result -->
 
@@ -195,108 +210,99 @@
           <v-container>
             <h1 class="text-h4 mb-6">Result: {{ result.length }}</h1>
 
-            <template v-for="block in resultSectionBlocks" :key="block.key">
-              <h2 class="text-h5 font-weight-medium mb-3">{{ block.title }}</h2>
-
-              <template v-if="block.key === 'highlight'">
-                <template v-for="group in resultHighlightGroups" :key="block.key + '-' + group.title">
-                  <h3 class="text-subtitle-1 font-weight-medium mb-2 ms-1">{{ group.title }}</h3>
-                  <v-row class="mb-6">
-                    <template v-for="{ item, index } in group.entries" :key="block.key + '-' + group.title + '-' + index">
-                      <v-col cols="2">
-                        <v-card class="mb-3" rounded="xl" @click="showPreview(index)">
-                          <v-img cover :src="getPath('/load?url=') + encodeURIComponent(item.image.url)">
-                            <div class="fill-height bg-gradient"></div>
-                            <div class="position-absolute top-0 left-0 ps-3 pt-2 text-white text-shadow text-left">
-                              <p class="text-h6 font-weight-bold mb-0">{{ item.username }}</p>
-                              <small>{{ item.filename }}</small>
-                              <div class="text-caption mt-1 opacity-90">
-                                {{ item.highlight_title || item.media_kind || 'highlight' }}
-                              </div>
-                            </div>
-                            <div class="position-absolute top-0 right-0 pe-3 pt-2 text-white text-shadow text-left">
-                              <p class="text-h6 font-weight-bold mb-0">{{ index + 1 }}</p>
-                            </div>
-                            <div
-                              class="position-absolute bottom-0 right-0 pe-2 pb-2 text-white text-shadow text-left d-flex flex-column">
-                              <v-btn v-if="item.video" icon size="large" target="_blank" variant="text" :href="item.video.url"
-                                :text="item.video.height">
-                                <v-icon class="text-shadow" color="red">fi-rr-play-alt</v-icon>
-                                <v-tooltip activator="parent" location="start">
-                                  {{ item.video.width + " x " + item.video.height }}
-                                </v-tooltip>
-                              </v-btn>
-                              <v-btn variant="plain" icon @click.stop="showPreview(index)">
-                                <v-icon class="text-shadow">fi-rr-eye</v-icon>
-                                <v-tooltip activator="parent" location="start">
-                                  {{ item.image.width + " x " + item.image.height }}
-                                </v-tooltip>
-                              </v-btn>
-                              <v-btn variant="plain" icon @click.stop="downloadMedia(item.image.url, item.filename)">
-                                <v-icon class="text-shadow">fi-rr-download</v-icon>
-                                <v-tooltip activator="parent" location="start">Download</v-tooltip>
-                              </v-btn>
-                            </div>
-                            <template v-slot:placeholder>
-                              <div class="d-flex align-center justify-center fill-height">
-                                <v-progress-circular color="primary" indeterminate></v-progress-circular>
-                              </div>
-                            </template>
-                          </v-img>
-                        </v-card>
-                      </v-col>
-                    </template>
-                  </v-row>
-                </template>
-              </template>
-
-              <v-row v-else :class="block.key === 'feed' ? '' : 'mb-8'">
-                <template v-for="{ item, index } in block.entries" :key="block.key + '-' + index">
-                  <v-col cols="6" md="4" xl="2">
-                    <v-card class="mb-3" rounded="xl" @click="showPreview(index)">
-                      <v-img cover :src="getPath('/load?url=') + encodeURIComponent(item.image.url)">
-                        <div class="fill-height bg-gradient"></div>
-                        <div class="position-absolute top-0 left-0 ps-3 pt-2 text-white text-shadow text-left">
-                          <p class="text-h6 font-weight-bold mb-0">{{ item.username }}</p>
-                          <small>{{ item.filename }}</small>
-                          <div class="text-caption mt-1 opacity-90">
-                            {{ item.media_kind || 'feed' }}
-                          </div>
-                        </div>
-                        <div class="position-absolute top-0 right-0 pe-3 pt-2 text-white text-shadow text-left">
-                          <p class="text-h6 font-weight-bold mb-0">{{ index + 1 }}</p>
-                        </div>
-                        <div
-                          class="position-absolute bottom-0 right-0 pe-2 pb-2 text-white text-shadow text-left d-flex flex-column">
-                          <v-btn v-if="item.video" icon size="large" target="_blank" variant="text" :href="item.video.url"
-                            :text="item.video.height">
-                            <v-icon class="text-shadow" color="red">fi-rr-play-alt</v-icon>
-                            <v-tooltip activator="parent" location="start">
-                              {{ item.video.width + " x " + item.video.height }}
-                            </v-tooltip>
-                          </v-btn>
-                          <v-btn variant="plain" icon @click.stop="showPreview(index)">
-                            <v-icon class="text-shadow">fi-rr-eye</v-icon>
-                            <v-tooltip activator="parent" location="start">
-                              {{ item.image.width + " x " + item.image.height }}
-                            </v-tooltip>
-                          </v-btn>
-                          <v-btn variant="plain" icon @click.stop="downloadMedia(item.image.url, item.filename)">
-                            <v-icon class="text-shadow">fi-rr-download</v-icon>
-                            <v-tooltip activator="parent" location="start">Download</v-tooltip>
-                          </v-btn>
-                        </div>
-                        <template v-slot:placeholder>
-                          <div class="d-flex align-center justify-center fill-height">
-                            <v-progress-circular color="primary" indeterminate></v-progress-circular>
-                          </div>
-                        </template>
-                      </v-img>
-                    </v-card>
-                  </v-col>
-                </template>
+            <template v-if="resultProfileBlock">
+              <h2 class="text-h5 font-weight-medium mb-3">{{ resultProfileBlock.title }}</h2>
+              <v-row class="mb-8">
+                <media-entry-card
+                  v-for="{ item, index } in resultProfileBlock.entries"
+                  :key="'profile-' + index"
+                  :item="item"
+                  :index="index"
+                  :load-images="true"
+                  :label="getMediaCardLabel(item)"
+                  :cols="6"
+                  :md="4"
+                  :xl="2"
+                  :get-path="getPath"
+                  :get-media-image-src="getMediaImageSrc"
+                  @preview="showPreview"
+                  @download="downloadMedia"
+                />
               </v-row>
             </template>
+
+            <v-expansion-panels
+              v-if="expandableSectionBlocks.length > 0"
+              v-model="expandedSections"
+              multiple
+              variant="accordion"
+              class="mb-4"
+            >
+              <v-expansion-panel
+                v-for="block in expandableSectionBlocks"
+                :key="block.key"
+                :value="block.key"
+              >
+                <v-expansion-panel-title>
+                  {{ block.title }} ({{ block.entries.length }})
+                </v-expansion-panel-title>
+                <v-expansion-panel-text>
+                  <template v-if="block.key === 'highlight'">
+                    <v-expansion-panels
+                      v-model="expandedHighlightGroups"
+                      multiple
+                      variant="accordion"
+                      class="mt-2"
+                    >
+                      <v-expansion-panel
+                        v-for="group in resultHighlightGroups"
+                        :key="block.key + '-' + group.title"
+                        :value="group.title"
+                      >
+                        <v-expansion-panel-title>
+                          {{ group.title }} ({{ group.entries.length }})
+                        </v-expansion-panel-title>
+                        <v-expansion-panel-text>
+                          <v-row>
+                            <media-entry-card
+                              v-for="{ item, index } in group.entries"
+                              :key="block.key + '-' + group.title + '-' + index"
+                              :item="item"
+                              :index="index"
+                              :load-images="isSectionExpanded('highlight') && isHighlightGroupExpanded(group.title)"
+                              :label="getMediaCardLabel(item)"
+                              :cols="2"
+                              :get-path="getPath"
+                              :get-media-image-src="getMediaImageSrc"
+                              @preview="showPreview"
+                              @download="downloadMedia"
+                            />
+                          </v-row>
+                        </v-expansion-panel-text>
+                      </v-expansion-panel>
+                    </v-expansion-panels>
+                  </template>
+
+                  <v-row v-else>
+                    <media-entry-card
+                      v-for="{ item, index } in block.entries"
+                      :key="block.key + '-' + index"
+                      :item="item"
+                      :index="index"
+                      :load-images="isSectionExpanded(block.key)"
+                      :label="getMediaCardLabel(item)"
+                      :cols="6"
+                      :md="4"
+                      :xl="2"
+                      :get-path="getPath"
+                      :get-media-image-src="getMediaImageSrc"
+                      @preview="showPreview"
+                      @download="downloadMedia"
+                    />
+                  </v-row>
+                </v-expansion-panel-text>
+              </v-expansion-panel>
+            </v-expansion-panels>
           </v-container>
         </v-card>
 
@@ -408,6 +414,74 @@
 
     const vuetify = createVuetify()
 
+    const MediaEntryCard = {
+      props: {
+        item: { type: Object, required: true },
+        index: { type: Number, required: true },
+        loadImages: { type: Boolean, default: false },
+        label: { type: String, default: 'feed' },
+        cols: { type: [String, Number], default: 6 },
+        md: { type: [String, Number], default: undefined },
+        xl: { type: [String, Number], default: undefined },
+        getPath: { type: Function, required: true },
+        getMediaImageSrc: { type: Function, required: true },
+      },
+      emits: ['preview', 'download'],
+      computed: {
+        imageSrc() {
+          return this.loadImages ? this.getMediaImageSrc(this.item) : undefined;
+        },
+      },
+      template: `
+        <v-col :cols="cols" :md="md" :xl="xl">
+          <v-card class="mb-3" rounded="xl" @click="$emit('preview', index)">
+            <v-img cover :src="imageSrc">
+              <div class="fill-height bg-gradient"></div>
+              <div class="position-absolute top-0 left-0 ps-3 pt-2 text-white text-shadow text-left">
+                <p class="text-h6 font-weight-bold mb-0">{{ item.username }}</p>
+                <small>{{ item.filename }}</small>
+                <div class="text-caption mt-1 opacity-90">{{ label }}</div>
+              </div>
+              <div class="position-absolute top-0 right-0 pe-3 pt-2 text-white text-shadow text-left">
+                <p class="text-h6 font-weight-bold mb-0">{{ index + 1 }}</p>
+              </div>
+              <div class="position-absolute bottom-0 right-0 pe-2 pb-2 text-white text-shadow text-left d-flex flex-column">
+                <v-btn
+                  v-if="item.video"
+                  icon
+                  size="large"
+                  target="_blank"
+                  variant="text"
+                  :href="item.video.url"
+                  :text="item.video.height"
+                >
+                  <v-icon class="text-shadow" color="red">fi-rr-play-alt</v-icon>
+                  <v-tooltip activator="parent" location="start">
+                    {{ item.video.width + " x " + item.video.height }}
+                  </v-tooltip>
+                </v-btn>
+                <v-btn variant="plain" icon @click.stop="$emit('preview', index)">
+                  <v-icon class="text-shadow">fi-rr-eye</v-icon>
+                  <v-tooltip activator="parent" location="start">
+                    {{ item.image.width + " x " + item.image.height }}
+                  </v-tooltip>
+                </v-btn>
+                <v-btn variant="plain" icon @click.stop="$emit('download', item.image.url, item.filename)">
+                  <v-icon class="text-shadow">fi-rr-download</v-icon>
+                  <v-tooltip activator="parent" location="start">Download</v-tooltip>
+                </v-btn>
+              </div>
+              <template #placeholder>
+                <div class="d-flex align-center justify-center fill-height">
+                  <v-progress-circular color="primary" indeterminate></v-progress-circular>
+                </div>
+              </template>
+            </v-img>
+          </v-card>
+        </v-col>
+      `,
+    };
+
     const app = createApp({
       data() {
         return {
@@ -434,6 +508,12 @@
           searchHistory: [],
           /** mobile app bar: 'username' | 'url' | 'json' */
           mobileInputMode: 'username',
+          expandedSections: [],
+          expandedHighlightGroups: [],
+          highlightLoadDialog: {
+            isShow: false,
+            pendingUsername: '',
+          },
         }
       },
 
@@ -492,6 +572,15 @@
             { key: 'feed', title: 'Post feed', entries: this.resultFeedEntries }
           ].filter((block) => block.entries.length > 0);
         },
+        resultProfileBlock() {
+          const block = this.resultSectionBlocks.find((b) => b.key === 'profile');
+          return block && block.entries.length > 0 ? block : null;
+        },
+        expandableSectionBlocks() {
+          return this.resultSectionBlocks.filter((block) =>
+            ['story', 'highlight', 'feed'].includes(block.key)
+          );
+        },
         sortedSearchHistory() {
           return [...this.searchHistory].sort((a, b) =>
             a.localeCompare(b, undefined, { sensitivity: 'base' })
@@ -529,6 +618,7 @@
               this.result = [];
               this.preview.isShow = false;
               this.preview.selected.index = 0;
+              this.resetExpansionPanels();
               return false;
             }
 
@@ -579,6 +669,27 @@
           return basePath ? basePath + '/' + path.replace(/^\//, '') : path;
         },
 
+        resetExpansionPanels() {
+          this.expandedSections = [];
+          this.expandedHighlightGroups = [];
+        },
+
+        isSectionExpanded(sectionKey) {
+          return this.expandedSections.includes(sectionKey);
+        },
+
+        isHighlightGroupExpanded(groupTitle) {
+          return this.expandedHighlightGroups.includes(groupTitle);
+        },
+
+        getMediaCardLabel(item) {
+          return item.highlight_title || item.media_kind || 'feed';
+        },
+
+        getMediaImageSrc(item) {
+          return this.getPath('/load?url=') + encodeURIComponent(item.image.url);
+        },
+
         saveSearchHistory(username) {
           if (!username) return;
           this.searchHistory = [username, ...this.searchHistory.filter(item => item !== username)].slice(0, 100);
@@ -612,7 +723,7 @@
           this.username = normalized;
 
           if (isExactHistoryPick && normalized && !this.usernameLoading) {
-            this.getInstagramProfile();
+            this.promptProfileLoad();
           }
         },
 
@@ -634,6 +745,7 @@
             if (!json) return false;
 
             this.result = [];
+            this.resetExpansionPanels();
 
             switch (type) {
                 // -------------------------------------------------------------
@@ -795,7 +907,7 @@
          * -----------------------------------------------------------------------
          * */
 
-        async getInstagramProfile() {
+        promptProfileLoad() {
           const username = (this.username || '').trim().replace(/^@/, '');
           if (!username) {
             this.usernameError = 'Username Instagram wajib diisi';
@@ -803,13 +915,37 @@
           }
 
           this.usernameError = '';
+          this.highlightLoadDialog.pendingUsername = username;
+          this.highlightLoadDialog.isShow = true;
+        },
+
+        confirmProfileLoad(includeHighlight) {
+          this.highlightLoadDialog.isShow = false;
+          this.getInstagramProfile(includeHighlight);
+        },
+
+        async getInstagramProfile(includeHighlight = false) {
+          const username = (this.highlightLoadDialog.pendingUsername || this.username || '')
+            .trim()
+            .replace(/^@/, '');
+          if (!username) {
+            this.usernameError = 'Username Instagram wajib diisi';
+            return;
+          }
+
+          this.username = username;
+          this.usernameError = '';
           this.result = [];
           this.preview.isShow = false;
           this.preview.selected.index = 0;
+          this.resetExpansionPanels();
           this.usernameLoading = true;
 
           try {
-            const response = await fetch(this.getPath('/profile?username=') + encodeURIComponent(username));
+            const response = await fetch(
+              this.getPath('/profile?username=') + encodeURIComponent(username)
+              + '&include_highlight=' + (includeHighlight ? '1' : '0')
+            );
             if (!response.ok) {
               throw new Error(`HTTP ${response.status}`);
             }
@@ -822,6 +958,7 @@
             this.usernameError = 'Gagal mengambil data profile. Cek username atau coba lagi.';
           } finally {
             this.usernameLoading = false;
+            this.highlightLoadDialog.pendingUsername = '';
           }
         },
 
@@ -843,6 +980,7 @@
           this.result = [];
           this.preview.isShow = false;
           this.preview.selected.index = 0;
+          this.resetExpansionPanels();
           this.postUrlLoading = true;
 
           try {
@@ -972,6 +1110,7 @@
         resetData() {
           this.result = [];
           this.jsonString = "";
+          this.resetExpansionPanels();
         },
       },
 
@@ -995,6 +1134,7 @@
         window.removeEventListener('keydown', this.handleKey)
       }
     });
+    app.component('MediaEntryCard', MediaEntryCard);
     app.use(vuetify).mount('#app')
 
   </script>

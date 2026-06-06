@@ -921,11 +921,17 @@ app.get(route('/profile'), async (req, res) => {
       console.error('Story fetch skipped:', storyError.message);
     }
 
+    const includeHighlight = ['1', 'true', 'yes'].includes(
+      String(req.query.include_highlight || '').toLowerCase()
+    );
+
     let highlightItems = [];
-    try {
-      highlightItems = await fetchHighlightItemsForUser(user, username);
-    } catch (highlightError) {
-      console.error('Highlight fetch skipped:', highlightError.message);
+    if (includeHighlight) {
+      try {
+        highlightItems = await fetchHighlightItemsForUser(user, username);
+      } catch (highlightError) {
+        console.error('Highlight fetch skipped:', highlightError.message);
+      }
     }
 
     const profilePictureItem = toProfilePictureItem(user, user.username || username);
