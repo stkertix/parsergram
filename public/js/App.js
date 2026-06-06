@@ -4,6 +4,7 @@ import {
   loadSearchHistory,
   saveSearchHistory,
   clearSearchHistory,
+  removeSearchHistoryItem,
   buildAutocompleteItems
 } from './utils/searchHistory.js';
 
@@ -32,6 +33,10 @@ export const App = {
       mobileInputMode: 'username',
       isDarkMode: false,
       highlightLoadDialog: {
+        isShow: false,
+        pendingUsername: ''
+      },
+      deleteHistoryDialog: {
         isShow: false,
         pendingUsername: ''
       }
@@ -150,6 +155,34 @@ export const App = {
         'filename=' + filename
       ];
       window.open(getPath('/download?') + params.join('&'));
+    },
+
+    promptDeleteHistory(username) {
+      const normalized = (username || '').trim().replace(/^@/, '');
+      if (!normalized) {
+        return;
+      }
+      this.deleteHistoryDialog.pendingUsername = normalized;
+      this.deleteHistoryDialog.isShow = true;
+    },
+
+    confirmDeleteHistory(confirmed) {
+      const username = this.deleteHistoryDialog.pendingUsername;
+      this.deleteHistoryDialog.isShow = false;
+
+      if (!confirmed || !username) {
+        this.deleteHistoryDialog.pendingUsername = '';
+        return;
+      }
+
+      this.searchHistory = removeSearchHistoryItem(this.searchHistory, username);
+
+      const norm = (s) => (s || '').trim().replace(/^@/, '').toLowerCase();
+      if (norm(this.username) === norm(username)) {
+        this.username = '';
+      }
+
+      this.deleteHistoryDialog.pendingUsername = '';
     },
 
     promptProfileLoad() {
@@ -384,6 +417,7 @@ export const App = {
         @fetch-post="getInstagramPostByUrl"
         @reset-data="resetData"
         @toggle-theme="toggleTheme"
+        @request-delete-history="promptDeleteHistory"
       />
 
       <v-main>
@@ -404,6 +438,13 @@ export const App = {
             :pending-username="highlightLoadDialog.pendingUsername"
             @update:is-show="highlightLoadDialog.isShow = $event"
             @confirm="confirmProfileLoad"
+          />
+
+          <delete-history-dialog
+            :is-show="deleteHistoryDialog.isShow"
+            :pending-username="deleteHistoryDialog.pendingUsername"
+            @update:is-show="deleteHistoryDialog.isShow = $event"
+            @confirm="confirmDeleteHistory"
           />
 
           <result-panel

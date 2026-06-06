@@ -195,6 +195,25 @@ body {
   user-select: none;
 }
 
+.ig-grid-tile__media-badges {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 3px 5px;
+  background: rgba(0, 0, 0, 0.55);
+  border-radius: 4px;
+  pointer-events: none;
+  user-select: none;
+}
+
+.ig-grid-tile__media-badges .v-icon {
+  color: #fff;
+}
+
 .ig-grid-tile__overlay {
   position: absolute;
   inset: 0;

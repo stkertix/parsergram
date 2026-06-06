@@ -19,6 +19,10 @@ export const MediaEntryCard = {
   template: `
     <div class="ig-grid-tile" @click="$emit('preview', index)">
       <span class="ig-grid-tile__index">{{ displayIndex }}</span>
+      <div class="ig-grid-tile__media-badges">
+        <v-icon size="12">fi-rr-picture</v-icon>
+        <v-icon v-if="item.video" size="12">fi-rr-play-alt</v-icon>
+      </div>
       <img
         v-if="imageSrc"
         :src="imageSrc"

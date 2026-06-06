@@ -119,10 +119,6 @@ export const ResultPanel = {
         grow
         height="44"
       >
-        <v-tab v-if="feedEntries.length > 0" value="feed">
-          <v-icon start size="small">fi-rr-apps</v-icon>
-          Posts
-        </v-tab>
         <v-tab v-if="storyEntries.length > 0" value="story">
           <v-icon start size="small">fi-rr-circle</v-icon>
           Story
@@ -130,6 +126,10 @@ export const ResultPanel = {
         <v-tab v-if="highlightGroups.length > 0" value="highlight">
           <v-icon start size="small">fi-rr-star</v-icon>
           Highlight
+        </v-tab>
+        <v-tab v-if="feedEntries.length > 0" value="feed">
+          <v-icon start size="small">fi-rr-apps</v-icon>
+          Posts
         </v-tab>
       </v-tabs>
 

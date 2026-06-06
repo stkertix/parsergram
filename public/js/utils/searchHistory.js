@@ -34,6 +34,19 @@ export function clearSearchHistory() {
   return [];
 }
 
+export function removeSearchHistoryItem(history, username) {
+  if (!username) {
+    return history;
+  }
+  const next = history.filter((item) => item !== username);
+  if (next.length === 0) {
+    localStorage.removeItem(STORAGE_KEY);
+  } else {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+  }
+  return next;
+}
+
 export function buildAutocompleteItems(searchHistory) {
   const sorted = [...searchHistory].sort((a, b) =>
     a.localeCompare(b, undefined, { sensitivity: 'base' })

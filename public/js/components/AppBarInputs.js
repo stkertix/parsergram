@@ -19,7 +19,8 @@ export const AppBarInputs = {
     'prompt-profile',
     'fetch-post',
     'reset-data',
-    'toggle-theme'
+    'toggle-theme',
+    'request-delete-history'
   ],
   data() {
     return {
@@ -55,6 +56,27 @@ export const AppBarInputs = {
             <template #prepend-inner>
               <v-icon size="small" color="grey">fi-rr-search</v-icon>
             </template>
+            <template #item="{ props, item }">
+              <v-list-subheader v-if="item.raw.type === 'subheader'">
+                {{ item.raw.title }}
+              </v-list-subheader>
+              <v-divider v-else-if="item.raw.type === 'divider'" />
+              <v-list-item v-else v-bind="props">
+                <template
+                  v-if="item.raw.value && item.raw.value !== '__clear_history__'"
+                  #append
+                >
+                  <v-btn
+                    icon
+                    variant="text"
+                    size="x-small"
+                    @click.stop="$emit('request-delete-history', item.raw.value)"
+                  >
+                    <v-icon size="small">fi-rr-trash</v-icon>
+                  </v-btn>
+                </template>
+              </v-list-item>
+            </template>
           </v-combobox>
         </template>
 
@@ -82,6 +104,27 @@ export const AppBarInputs = {
           >
             <template #prepend-inner>
               <v-icon size="small" color="grey">fi-rr-search</v-icon>
+            </template>
+            <template #item="{ props, item }">
+              <v-list-subheader v-if="item.raw.type === 'subheader'">
+                {{ item.raw.title }}
+              </v-list-subheader>
+              <v-divider v-else-if="item.raw.type === 'divider'" />
+              <v-list-item v-else v-bind="props">
+                <template
+                  v-if="item.raw.value && item.raw.value !== '__clear_history__'"
+                  #append
+                >
+                  <v-btn
+                    icon
+                    variant="text"
+                    size="x-small"
+                    @click.stop="$emit('request-delete-history', item.raw.value)"
+                  >
+                    <v-icon size="small">fi-rr-trash</v-icon>
+                  </v-btn>
+                </template>
+              </v-list-item>
             </template>
           </v-combobox>
           <v-text-field
