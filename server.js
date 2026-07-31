@@ -4,6 +4,7 @@ const fs = require('fs');
 const express = require('express');
 const axios = require('axios');
 const path = require('path');
+const { AsyncLocalStorage } = require('async_hooks');
 const app = express();
 const PORT = process.env.PORT || 3001;
 const BASE_PATH = process.env.BASE_PATH || '';
@@ -11,9 +12,10 @@ const IG_COOKIE = process.env.IG_COOKIE || '';
 const IG_SESSIONID = process.env.IG_SESSIONID || '';
 const IG_WWW_CLAIM = process.env.IG_WWW_CLAIM || '0';
 const COOKIE_CACHE_TTL_MS = 5 * 60 * 1000;
+const requestContext = new AsyncLocalStorage();
 
-let cachedInstagramCookieHeader = '';
-let cachedInstagramCookieAt = 0;
+/** @type {Map<string, { header: string, at: number }>} */
+const instagramCookieCache = new Map();
 
 /**
  * Prefix route path with BASE_PATH when configured.
@@ -44,12 +46,17 @@ const igApiHeaders = {
 };
 
 /**
- * Build cookie header from env vars.
+ * Resolve Instagram cookie: request override, then env vars.
  * -----------------------------------------------------------------------------
- * Used by proxy/download handlers.
+ * Frontend may send `X-IG-Cookie` so multiple accounts can be switched without
+ * restarting the server. Falls back to IG_COOKIE / IG_SESSIONID from .env.
  * @returns {string} Cookie header value.
  */
 const getInstagramCookieHeader = () => {
+  const fromRequest = (requestContext.getStore()?.igCookie || '').trim();
+  if (fromRequest) {
+    return fromRequest;
+  }
   if (IG_COOKIE) {
     return IG_COOKIE;
   }
@@ -89,21 +96,22 @@ const mergeCookieHeaders = (...cookieSources) => {
  * Bootstrap Instagram cookie with homepage set-cookie values.
  * -----------------------------------------------------------------------------
  * Helps feed endpoints that require csrftoken and companion cookies.
+ * Cache is keyed by base cookie so frontend account switches stay isolated.
  * @returns {Promise<string>} Bootstrapped cookie header.
  */
 const getBootstrappedInstagramCookieHeader = async () => {
   const now = Date.now();
-  if (cachedInstagramCookieHeader && (now - cachedInstagramCookieAt) < COOKIE_CACHE_TTL_MS) {
-    return cachedInstagramCookieHeader;
-  }
-
   const baseCookie = getInstagramCookieHeader();
   if (!baseCookie) {
-    cachedInstagramCookieHeader = '';
-    cachedInstagramCookieAt = now;
     return '';
   }
 
+  const cached = instagramCookieCache.get(baseCookie);
+  if (cached && (now - cached.at) < COOKIE_CACHE_TTL_MS) {
+    return cached.header;
+  }
+
+  let header = baseCookie;
   try {
     const homepageResponse = await axios.get('https://www.instagram.com/', {
       timeout: 20000,
@@ -115,13 +123,13 @@ const getBootstrappedInstagramCookieHeader = async () => {
     const responseCookies = (homepageResponse.headers['set-cookie'] || [])
       .map((cookieLine) => cookieLine.split(';')[0])
       .join('; ');
-    cachedInstagramCookieHeader = mergeCookieHeaders(baseCookie, responseCookies);
-  } catch (error) {
-    cachedInstagramCookieHeader = baseCookie;
+    header = mergeCookieHeaders(baseCookie, responseCookies);
+  } catch (_error) {
+    header = baseCookie;
   }
 
-  cachedInstagramCookieAt = now;
-  return cachedInstagramCookieHeader;
+  instagramCookieCache.set(baseCookie, { header, at: now });
+  return header;
 };
 
 /**
@@ -809,6 +817,15 @@ const getMediaExtension = (contentType, mediaUrl) => {
 };
 
 /**
+ * Capture optional Instagram cookie from the frontend (X-IG-Cookie header).
+ * -----------------------------------------------------------------------------
+ */
+app.use((req, res, next) => {
+  const igCookie = (req.get('X-IG-Cookie') || '').trim();
+  requestContext.run({ igCookie }, next);
+});
+
+/**
  * Serve static files (jika ada folder public, css, js, dll)
  * -----------------------------------------------------------------------------
  */
@@ -952,7 +969,7 @@ app.get(route('/profile'), async (req, res) => {
     if (status === 401 && requireLogin) {
       return res.status(401).json({
         error: 'Instagram API requires authentication',
-        message: 'Set IG_COOKIE (recommended) or IG_SESSIONID in environment variables for server-side requests.'
+        message: 'Provide an Instagram cookie from the frontend (More tools → IG Cookie) or set IG_COOKIE / IG_SESSIONID in environment variables.'
       });
     }
     return res.status(status).json({

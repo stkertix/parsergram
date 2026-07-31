@@ -7,6 +7,14 @@ import {
   removeSearchHistoryItem,
   buildAutocompleteItems
 } from './utils/searchHistory.js';
+import {
+  loadIgCookieStore,
+  upsertIgCookieProfile,
+  removeIgCookieProfile,
+  setActiveIgCookieId,
+  getIgCookieHeaders
+} from './utils/igCookie.js';
+import { detectSearchInput } from './utils/detectSearchInput.js';
 
 const THEME_STORAGE_KEY = 'parsergram-theme';
 
@@ -24,13 +32,12 @@ export const App = {
         pos: { x: 0, y: 0 },
         start: { x: 0, y: 0 }
       },
+      searchQuery: '',
       username: '',
       usernameLoading: false,
-      postUrl: '',
       postUrlLoading: false,
       usernameError: '',
       searchHistory: [],
-      mobileInputMode: 'username',
       isDarkMode: false,
       highlightLoadDialog: {
         isShow: false,
@@ -39,14 +46,20 @@ export const App = {
       deleteHistoryDialog: {
         isShow: false,
         pendingUsername: ''
+      },
+      cookieStore: {
+        profiles: [],
+        activeId: ''
+      },
+      cookieSettingsDialog: {
+        isShow: false
       }
     };
   },
 
   computed: {
-    inputModeLabel() {
-      const labels = { username: 'Username', url: 'URL', json: 'JSON' };
-      return labels[this.mobileInputMode] || 'Username';
+    searchLoading() {
+      return this.usernameLoading || this.postUrlLoading;
     },
     searchHistoryAutocompleteItems() {
       return buildAutocompleteItems(this.searchHistory);
@@ -54,6 +67,10 @@ export const App = {
     resultPanelKey() {
       const first = this.result[0];
       return this.result.length + '-' + (first?.item?.username || first?.username || '');
+    },
+    activeCookieLabel() {
+      const active = this.cookieStore.profiles.find((p) => p.id === this.cookieStore.activeId);
+      return active?.name || '';
     }
   },
 
@@ -119,6 +136,22 @@ export const App = {
       this.result = parsedResult;
     },
 
+    openCookieSettings() {
+      this.cookieSettingsDialog.isShow = true;
+    },
+
+    selectIgCookie(id) {
+      this.cookieStore = setActiveIgCookieId(this.cookieStore, id);
+    },
+
+    saveIgCookie(profile) {
+      this.cookieStore = upsertIgCookieProfile(this.cookieStore, profile);
+    },
+
+    removeIgCookie(id) {
+      this.cookieStore = removeIgCookieProfile(this.cookieStore, id);
+    },
+
     normalizeUsernameValue(value) {
       if (value == null) {
         return '';
@@ -129,24 +162,55 @@ export const App = {
       return String(value);
     },
 
-    onUsernameAutocompleteUpdate(value) {
+    onQueryAutocompleteUpdate(value) {
       if (value === '__clear_history__') {
         this.searchHistory = clearSearchHistory();
+        this.searchQuery = '';
         this.username = '';
         return;
       }
 
       const normalized = this.normalizeUsernameValue(value);
+      this.searchQuery = normalized;
+
+      const detected = detectSearchInput(normalized);
+      if (detected.kind !== 'username' || !detected.value || this.searchLoading) {
+        return;
+      }
+
       const norm = (s) => (s || '').trim().replace(/^@/, '').toLowerCase();
       const isExactHistoryPick = this.searchHistory.some(
-        (item) => item === normalized || norm(item) === norm(normalized)
+        (item) => item === detected.value || norm(item) === norm(detected.value)
       );
 
-      this.username = normalized;
-
-      if (isExactHistoryPick && normalized && !this.usernameLoading) {
+      if (isExactHistoryPick) {
+        this.username = detected.value;
         this.promptProfileLoad();
       }
+    },
+
+    submitSearch() {
+      const detected = detectSearchInput(this.searchQuery);
+      if (detected.kind === 'empty') {
+        this.usernameError = 'Enter a username, Instagram URL, or JSON';
+        return;
+      }
+
+      this.usernameError = '';
+      this.searchQuery = detected.value;
+
+      if (detected.kind === 'url') {
+        this.getInstagramPostByUrl(detected.value);
+        return;
+      }
+
+      if (detected.kind === 'json') {
+        this.jsonString = detected.value;
+        return;
+      }
+
+      this.username = detected.value;
+      this.promptProfileLoad();
     },
 
     downloadMedia(mediaUrl, filename) {
@@ -178,20 +242,23 @@ export const App = {
       this.searchHistory = removeSearchHistoryItem(this.searchHistory, username);
 
       const norm = (s) => (s || '').trim().replace(/^@/, '').toLowerCase();
-      if (norm(this.username) === norm(username)) {
+      if (norm(this.username) === norm(username) || norm(this.searchQuery) === norm(username)) {
         this.username = '';
+        this.searchQuery = '';
       }
 
       this.deleteHistoryDialog.pendingUsername = '';
     },
 
     promptProfileLoad() {
-      const username = (this.username || '').trim().replace(/^@/, '');
+      const username = (this.username || this.searchQuery || '').trim().replace(/^@/, '');
       if (!username) {
         this.usernameError = 'Instagram username is required';
         return;
       }
 
+      this.username = username;
+      this.searchQuery = username;
       this.usernameError = '';
       this.highlightLoadDialog.pendingUsername = username;
       this.highlightLoadDialog.isShow = true;
@@ -212,6 +279,7 @@ export const App = {
       }
 
       this.username = username;
+      this.searchQuery = username;
       this.usernameError = '';
       this.result = [];
       this.preview.isShow = false;
@@ -221,10 +289,12 @@ export const App = {
       try {
         const response = await fetch(
           getPath('/profile?username=') + encodeURIComponent(username)
-          + '&include_highlight=' + (includeHighlight ? '1' : '0')
+          + '&include_highlight=' + (includeHighlight ? '1' : '0'),
+          { headers: getIgCookieHeaders(this.cookieStore) }
         );
         if (!response.ok) {
-          throw new Error(`HTTP ${response.status}`);
+          const errBody = await response.json().catch(() => ({}));
+          throw new Error(errBody.message || `HTTP ${response.status}`);
         }
 
         const data = await response.json();
@@ -232,15 +302,15 @@ export const App = {
         this.searchHistory = saveSearchHistory(this.searchHistory, username);
       } catch (error) {
         console.error('Gagal mengambil data profile:', error);
-        this.usernameError = 'Failed to fetch profile. Check the username or try again.';
+        this.usernameError = error.message || 'Failed to fetch profile. Check the username or try again.';
       } finally {
         this.usernameLoading = false;
         this.highlightLoadDialog.pendingUsername = '';
       }
     },
 
-    async getInstagramPostByUrl() {
-      const url = (this.postUrl || '').trim();
+    async getInstagramPostByUrl(urlOverride) {
+      const url = (urlOverride || this.searchQuery || '').trim();
       if (!url) {
         this.usernameError = 'Instagram post URL is required';
         return;
@@ -250,6 +320,7 @@ export const App = {
         return;
       }
 
+      this.searchQuery = url;
       this.usernameError = '';
       this.result = [];
       this.preview.isShow = false;
@@ -257,7 +328,10 @@ export const App = {
       this.postUrlLoading = true;
 
       try {
-        const response = await fetch(getPath('/post?url=') + encodeURIComponent(url));
+        const response = await fetch(
+          getPath('/post?url=') + encodeURIComponent(url),
+          { headers: getIgCookieHeaders(this.cookieStore) }
+        );
         if (!response.ok) {
           const errBody = await response.json().catch(() => ({}));
           throw new Error(errBody.message || `HTTP ${response.status}`);
@@ -386,11 +460,14 @@ export const App = {
     resetData() {
       this.result = [];
       this.jsonString = '';
+      this.searchQuery = '';
+      this.username = '';
     }
   },
 
   mounted() {
     this.searchHistory = loadSearchHistory();
+    this.cookieStore = loadIgCookieStore();
     const saved = localStorage.getItem(THEME_STORAGE_KEY);
     this.isDarkMode = saved === 'dark';
     this.applyTheme();
@@ -403,21 +480,15 @@ export const App = {
   template: `
     <v-app class="ig-app-shell">
       <app-bar-inputs
-        v-model:username="username"
-        v-model:post-url="postUrl"
-        v-model:json-string="jsonString"
-        v-model:mobile-input-mode="mobileInputMode"
-        :username-loading="usernameLoading"
-        :post-url-loading="postUrlLoading"
+        v-model:query="searchQuery"
+        :loading="searchLoading"
         :search-history-autocomplete-items="searchHistoryAutocompleteItems"
-        :input-mode-label="inputModeLabel"
         :is-dark-mode="isDarkMode"
-        @username-autocomplete-update="onUsernameAutocompleteUpdate"
-        @prompt-profile="promptProfileLoad"
-        @fetch-post="getInstagramPostByUrl"
-        @reset-data="resetData"
+        @query-autocomplete-update="onQueryAutocompleteUpdate"
+        @submit-search="submitSearch"
         @toggle-theme="toggleTheme"
         @request-delete-history="promptDeleteHistory"
+        @open-cookie-settings="openCookieSettings"
       />
 
       <v-main>
@@ -433,6 +504,17 @@ export const App = {
             {{ usernameError }}
           </v-alert>
 
+          <v-chip
+            v-if="activeCookieLabel"
+            class="mt-3 ig-cookie-chip"
+            size="small"
+            variant="tonal"
+            prepend-icon="fi-rr-key"
+            @click="openCookieSettings"
+          >
+            Cookie: {{ activeCookieLabel }}
+          </v-chip>
+
           <highlight-load-dialog
             :is-show="highlightLoadDialog.isShow"
             :pending-username="highlightLoadDialog.pendingUsername"
@@ -447,6 +529,16 @@ export const App = {
             @confirm="confirmDeleteHistory"
           />
 
+          <cookie-settings-dialog
+            :is-show="cookieSettingsDialog.isShow"
+            :profiles="cookieStore.profiles"
+            :active-id="cookieStore.activeId"
+            @update:is-show="cookieSettingsDialog.isShow = $event"
+            @select="selectIgCookie"
+            @save="saveIgCookie"
+            @remove="removeIgCookie"
+          />
+
           <result-panel
             v-if="result.length > 0"
             :key="resultPanelKey"
@@ -458,11 +550,11 @@ export const App = {
           />
 
           <div
-            v-else-if="!usernameLoading && !postUrlLoading"
+            v-else-if="!searchLoading"
             class="ig-empty-state"
           >
             <v-icon size="48">fi-rr-search</v-icon>
-            <p>Search for an Instagram username to get started</p>
+            <p>Enter a username, Instagram URL, or JSON to get started</p>
           </div>
 
           <div v-else class="ig-empty-state">
