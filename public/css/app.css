@@ -128,6 +128,36 @@ body {
 .ig-tab-bar {
   border-top: 1px solid var(--ig-border);
   margin-bottom: 0;
+  flex: 1;
+  min-width: 0;
+}
+
+.ig-result-toolbar {
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+  border-top: 1px solid var(--ig-border);
+}
+
+.ig-result-toolbar .ig-tab-bar {
+  border-top: none;
+}
+
+.ig-view-toggle {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 4px;
+  flex-shrink: 0;
+  border-left: 1px solid var(--ig-border);
+}
+
+.ig-view-toggle .v-btn {
+  color: var(--ig-text-muted);
+}
+
+.ig-view-toggle__btn--active {
+  color: var(--ig-text) !important;
 }
 
 .ig-tab-bar .v-tab {
@@ -233,6 +263,94 @@ body {
 
 .ig-grid-tile__overlay .v-icon {
   color: #fff;
+}
+
+.ig-list {
+  display: flex;
+  flex-direction: column;
+  margin-top: 2px;
+  border-top: 1px solid var(--ig-border);
+}
+
+.ig-list-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 4px;
+  border-bottom: 1px solid var(--ig-border);
+  cursor: pointer;
+  background: transparent;
+  transition: background 0.12s ease;
+}
+
+.ig-list-row:hover {
+  background: color-mix(in srgb, var(--ig-text) 4%, transparent);
+}
+
+.ig-list-row__index {
+  flex-shrink: 0;
+  width: 28px;
+  text-align: right;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--ig-text-muted);
+  user-select: none;
+}
+
+.ig-list-row__thumb {
+  position: relative;
+  flex-shrink: 0;
+  width: 56px;
+  height: 56px;
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--ig-border);
+}
+
+.ig-list-row__img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.ig-list-row__placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--ig-bg);
+}
+
+.ig-list-row__play {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  color: #fff !important;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.55));
+}
+
+.ig-list-row__meta {
+  min-width: 0;
+  flex: 1;
+}
+
+.ig-list-row__filename {
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--ig-text);
+  line-height: 1.3;
+}
+
+.ig-list-row__sub {
+  margin-top: 2px;
+  font-size: 0.78rem;
+  color: var(--ig-text-muted);
+}
+
+.ig-list-row__actions {
+  flex-shrink: 0;
 }
 
 .ig-highlight-row {
@@ -404,5 +522,15 @@ body {
 
   .ig-logo {
     font-size: 1.15rem;
+  }
+
+  .ig-list-row {
+    gap: 10px;
+    padding: 8px 0;
+  }
+
+  .ig-list-row__thumb {
+    width: 48px;
+    height: 48px;
   }
 }

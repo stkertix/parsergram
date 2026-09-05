@@ -5,6 +5,21 @@ import {
   resultHighlightGroups as buildResultHighlightGroups
 } from '../utils/resultGroups.js';
 
+const VIEW_MODE_STORAGE_KEY = 'parsergram-view-mode';
+
+/**
+ * Load saved result view mode (grid thumbnails or list).
+ * @returns {'grid'|'list'}
+ */
+const loadViewMode = () => {
+  try {
+    const saved = localStorage.getItem(VIEW_MODE_STORAGE_KEY);
+    return saved === 'list' ? 'list' : 'grid';
+  } catch (_error) {
+    return 'grid';
+  }
+};
+
 export const ResultPanel = {
   props: {
     result: { type: Array, required: true },
@@ -18,7 +33,8 @@ export const ResultPanel = {
     return {
       activeTab: 'story',
       activeHighlightId: '',
-      activeHighlightTitle: ''
+      activeHighlightTitle: '',
+      viewMode: loadViewMode()
     };
   },
   computed: {
@@ -146,6 +162,17 @@ export const ResultPanel = {
         return groupTitle === this.activeHighlightTitle;
       }
       return true;
+    },
+    setViewMode(mode) {
+      this.viewMode = mode === 'list' ? 'list' : 'grid';
+      try {
+        localStorage.setItem(VIEW_MODE_STORAGE_KEY, this.viewMode);
+      } catch (_error) {
+        // Ignore storage failures (private mode, quota, etc.)
+      }
+    },
+    mediaContainerClass() {
+      return this.viewMode === 'list' ? 'ig-list' : 'ig-grid';
     }
   },
   template: `
@@ -160,35 +187,62 @@ export const ResultPanel = {
         :get-media-image-src="getMediaImageSrc"
       />
 
-      <v-tabs
-        v-if="availableTabs.length > 0"
-        v-model="activeTab"
-        class="ig-tab-bar"
-        grow
-        height="44"
-      >
-        <v-tab v-if="storyEntries.length > 0" value="story">
-          <v-icon start size="small">fi-rr-circle</v-icon>
-          Story
-        </v-tab>
-        <v-tab v-if="highlightAlbums.length > 0" value="highlight">
-          <v-icon start size="small">fi-rr-star</v-icon>
-          Highlight
-        </v-tab>
-        <v-tab v-if="feedEntries.length > 0" value="feed">
-          <v-icon start size="small">fi-rr-apps</v-icon>
-          Posts
-        </v-tab>
-      </v-tabs>
+      <div v-if="availableTabs.length > 0" class="ig-result-toolbar">
+        <v-tabs
+          v-model="activeTab"
+          class="ig-tab-bar"
+          grow
+          height="44"
+        >
+          <v-tab v-if="storyEntries.length > 0" value="story">
+            <v-icon start size="small">fi-rr-circle</v-icon>
+            Story
+          </v-tab>
+          <v-tab v-if="highlightAlbums.length > 0" value="highlight">
+            <v-icon start size="small">fi-rr-star</v-icon>
+            Highlight
+          </v-tab>
+          <v-tab v-if="feedEntries.length > 0" value="feed">
+            <v-icon start size="small">fi-rr-apps</v-icon>
+            Posts
+          </v-tab>
+        </v-tabs>
+
+        <div class="ig-view-toggle" role="group" aria-label="Result view">
+          <v-btn
+            icon
+            size="small"
+            variant="text"
+            :class="{ 'ig-view-toggle__btn--active': viewMode === 'grid' }"
+            title="Thumbnail view"
+            aria-label="Thumbnail view"
+            @click="setViewMode('grid')"
+          >
+            <v-icon size="18">fi-rr-apps</v-icon>
+          </v-btn>
+          <v-btn
+            icon
+            size="small"
+            variant="text"
+            :class="{ 'ig-view-toggle__btn--active': viewMode === 'list' }"
+            title="List view"
+            aria-label="List view"
+            @click="setViewMode('list')"
+          >
+            <v-icon size="18">fi-rr-list</v-icon>
+          </v-btn>
+        </div>
+      </div>
 
       <v-window v-model="activeTab">
         <v-window-item value="feed">
-          <div v-if="feedEntries.length > 0" class="ig-grid">
+          <div v-if="feedEntries.length > 0" :class="mediaContainerClass()">
             <media-entry-card
               v-for="{ item, index } in feedEntries"
               :key="'feed-' + index"
               :item="item"
               :index="index"
+              :layout="viewMode"
               :load-images="shouldLoadGridImages('feed')"
               :get-path="getPath"
               :get-media-image-src="getMediaImageSrc"
@@ -200,12 +254,13 @@ export const ResultPanel = {
         </v-window-item>
 
         <v-window-item value="story">
-          <div v-if="storyEntries.length > 0" class="ig-grid">
+          <div v-if="storyEntries.length > 0" :class="mediaContainerClass()">
             <media-entry-card
               v-for="{ item, index } in storyEntries"
               :key="'story-' + index"
               :item="item"
               :index="index"
+              :layout="viewMode"
               :load-images="shouldLoadGridImages('story')"
               :get-path="getPath"
               :get-media-image-src="getMediaImageSrc"
@@ -251,12 +306,16 @@ export const ResultPanel = {
             <v-progress-circular size="32" width="3" indeterminate />
             <p>Loading highlight album…</p>
           </div>
-          <div v-else-if="activeHighlightAlbum && activeHighlightAlbum.loaded" class="ig-grid">
+          <div
+            v-else-if="activeHighlightAlbum && activeHighlightAlbum.loaded"
+            :class="mediaContainerClass()"
+          >
             <media-entry-card
               v-for="{ item, index } in activeHighlightAlbum.entries"
               :key="'highlight-' + activeHighlightAlbum.id + '-' + index"
               :item="item"
               :index="index"
+              :layout="viewMode"
               :load-images="shouldLoadGridImages('highlight', activeHighlightTitle)"
               :get-path="getPath"
               :get-media-image-src="getMediaImageSrc"
