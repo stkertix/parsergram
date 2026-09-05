@@ -1,6 +1,11 @@
 const STORAGE_KEY = 'parsergram-ig-cookies';
 
 /**
+ * Reserved id used when the user explicitly wants no cookie at all.
+ */
+export const NO_COOKIE_ID = '__no_cookie__';
+
+/**
  * @typedef {{ id: string, name: string, value: string }} IgCookieProfile
  * @typedef {{ profiles: IgCookieProfile[], activeId: string }} IgCookieStore
  */
@@ -36,7 +41,7 @@ export const loadIgCookieStore = () => {
           value: String(p.value).trim()
         }))
       : [];
-    const activeId = profiles.some((p) => p.id === parsed?.activeId)
+    const activeId = parsed?.activeId === NO_COOKIE_ID || profiles.some((p) => p.id === parsed?.activeId)
       ? parsed.activeId
       : (profiles[0]?.id || '');
     return { profiles, activeId };
@@ -58,7 +63,7 @@ export const saveIgCookieStore = (store) => {
       name: String(p.name || 'Cookie').trim() || 'Cookie',
       value: String(p.value).trim()
     }));
-  const activeId = profiles.some((p) => p.id === store.activeId)
+  const activeId = store.activeId === NO_COOKIE_ID || profiles.some((p) => p.id === store.activeId)
     ? store.activeId
     : (profiles[0]?.id || '');
   const next = { profiles, activeId };
@@ -73,6 +78,9 @@ export const saveIgCookieStore = (store) => {
  */
 export const getActiveIgCookie = (store) => {
   const current = store || loadIgCookieStore();
+  if (current.activeId === NO_COOKIE_ID) {
+    return '';
+  }
   const active = current.profiles.find((p) => p.id === current.activeId);
   return (active?.value || '').trim();
 };
@@ -123,6 +131,9 @@ export const removeIgCookieProfile = (store, id) => {
  * @returns {IgCookieStore}
  */
 export const setActiveIgCookieId = (store, id) => {
+  if (id === NO_COOKIE_ID) {
+    return saveIgCookieStore({ ...store, activeId: NO_COOKIE_ID });
+  }
   if (!store.profiles.some((p) => p.id === id)) {
     return store;
   }
@@ -130,12 +141,28 @@ export const setActiveIgCookieId = (store, id) => {
 };
 
 /**
+ * Check whether the user explicitly selected "No Cookie".
+ * @param {IgCookieStore} [store]
+ * @returns {boolean}
+ */
+export const isNoCookieMode = (store) => {
+  const current = store || loadIgCookieStore();
+  return current.activeId === NO_COOKIE_ID;
+};
+
+/**
  * Headers to attach to API fetches when a frontend cookie is selected.
+ * When "No Cookie" is active, sends a special header so the server skips
+ * its own env-based fallback too.
  * @param {IgCookieStore} [store]
  * @returns {Record<string, string>}
  */
 export const getIgCookieHeaders = (store) => {
-  const cookie = getActiveIgCookie(store);
+  const current = store || loadIgCookieStore();
+  if (current.activeId === NO_COOKIE_ID) {
+    return { 'X-IG-Cookie': '__none__' };
+  }
+  const cookie = getActiveIgCookie(current);
   if (!cookie) {
     return {};
   }

@@ -1,3 +1,5 @@
+import { NO_COOKIE_ID } from '../utils/igCookie.js';
+
 export const CookieSettingsDialog = {
   props: {
     isShow: { type: Boolean, default: false },
@@ -13,11 +15,17 @@ export const CookieSettingsDialog = {
     };
   },
   computed: {
+    noCookieId() {
+      return NO_COOKIE_ID;
+    },
     selectItems() {
-      return this.profiles.map((p) => ({
-        title: p.name,
-        value: p.id
-      }));
+      return [
+        { title: 'No Cookie (requests will fail)', value: NO_COOKIE_ID },
+        ...this.profiles.map((p) => ({
+          title: p.name,
+          value: p.id
+        }))
+      ];
     },
     canSave() {
       return Boolean((this.draftValue || '').trim());
@@ -83,8 +91,19 @@ export const CookieSettingsDialog = {
             If none is selected, the server falls back to <code>IG_COOKIE</code> from .env.
           </p>
 
+          <v-alert
+            v-if="activeId === noCookieId"
+            type="warning"
+            variant="tonal"
+            density="compact"
+            class="mb-0"
+          >
+            Instagram no longer allows anonymous API access. With No Cookie active,
+            profile and post requests will be rejected (401/302). Use this only to
+            temporarily disable a saved cookie.
+          </v-alert>
+
           <v-select
-            v-if="profiles.length"
             :model-value="activeId"
             :items="selectItems"
             label="Active cookie"
@@ -96,11 +115,20 @@ export const CookieSettingsDialog = {
           />
 
           <v-list
-            v-if="profiles.length"
             density="compact"
             class="ig-cookie-list"
             rounded="lg"
           >
+            <v-list-item
+              :active="activeId === noCookieId"
+              @click="onSelect(noCookieId)"
+            >
+              <v-list-item-title>No Cookie</v-list-item-title>
+              <v-list-item-subtitle>
+                Ignores .env fallback — Instagram will reject data requests
+              </v-list-item-subtitle>
+            </v-list-item>
+
             <v-list-item
               v-for="profile in profiles"
               :key="profile.id"

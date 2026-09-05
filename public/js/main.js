@@ -1,7 +1,6 @@
 import { App } from './App.js';
 import { MediaEntryCard } from './components/MediaEntryCard.js';
 import { AppBarInputs } from './components/AppBarInputs.js';
-import { HighlightLoadDialog } from './components/HighlightLoadDialog.js';
 import { DeleteHistoryDialog } from './components/DeleteHistoryDialog.js';
 import { CookieSettingsDialog } from './components/CookieSettingsDialog.js';
 import { ResultPanel } from './components/ResultPanel.js';
@@ -41,7 +40,6 @@ const app = createApp(App);
 
 app.component('MediaEntryCard', MediaEntryCard);
 app.component('AppBarInputs', AppBarInputs);
-app.component('HighlightLoadDialog', HighlightLoadDialog);
 app.component('DeleteHistoryDialog', DeleteHistoryDialog);
 app.component('CookieSettingsDialog', CookieSettingsDialog);
 app.component('ResultPanel', ResultPanel);

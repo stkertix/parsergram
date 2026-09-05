@@ -3,7 +3,8 @@ export const ProfileHeader = {
     profileEntry: { type: Object, default: null },
     feedCount: { type: Number, default: 0 },
     storyCount: { type: Number, default: 0 },
-    highlightCount: { type: Number, default: 0 },
+    highlightAlbumCount: { type: Number, default: 0 },
+    highlightMediaCount: { type: Number, default: 0 },
     getPath: { type: Function, required: true },
     getMediaImageSrc: { type: Function, required: true }
   },
@@ -34,7 +35,10 @@ export const ProfileHeader = {
         <p class="ig-profile-stats">
           <strong>{{ feedCount }}</strong> <span>posts</span>
           · <strong>{{ storyCount }}</strong> <span>stories</span>
-          · <strong>{{ highlightCount }}</strong> <span>highlights</span>
+          · <strong>{{ highlightAlbumCount }}</strong> <span>highlight albums</span>
+          <template v-if="highlightMediaCount > 0">
+            · <strong>{{ highlightMediaCount }}</strong> <span>loaded</span>
+          </template>
         </p>
       </div>
     </header>

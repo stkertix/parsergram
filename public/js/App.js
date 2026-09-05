@@ -12,7 +12,8 @@ import {
   upsertIgCookieProfile,
   removeIgCookieProfile,
   setActiveIgCookieId,
-  getIgCookieHeaders
+  getIgCookieHeaders,
+  NO_COOKIE_ID
 } from './utils/igCookie.js';
 import { detectSearchInput } from './utils/detectSearchInput.js';
 
@@ -39,10 +40,8 @@ export const App = {
       usernameError: '',
       searchHistory: [],
       isDarkMode: false,
-      highlightLoadDialog: {
-        isShow: false,
-        pendingUsername: ''
-      },
+      highlightTray: [],
+      highlightLoadingIds: {},
       deleteHistoryDialog: {
         isShow: false,
         pendingUsername: ''
@@ -66,9 +65,16 @@ export const App = {
     },
     resultPanelKey() {
       const first = this.result[0];
-      return this.result.length + '-' + (first?.item?.username || first?.username || '');
+      const trayKey = this.highlightTray.map((tray) => tray.id).join(',');
+      return this.result.length + '-' + trayKey + '-' + (first?.username || '');
+    },
+    isNoCookieActive() {
+      return this.cookieStore.activeId === NO_COOKIE_ID;
     },
     activeCookieLabel() {
+      if (this.isNoCookieActive) {
+        return 'No Cookie';
+      }
       const active = this.cookieStore.profiles.find((p) => p.id === this.cookieStore.activeId);
       return active?.name || '';
     }
@@ -150,6 +156,14 @@ export const App = {
 
     removeIgCookie(id) {
       this.cookieStore = removeIgCookieProfile(this.cookieStore, id);
+    },
+
+    describeFetchError(error, fallback) {
+      if (this.isNoCookieActive) {
+        return 'No Cookie mode is active, so Instagram rejected the request. '
+          + 'Select a saved cookie in IG Cookie settings to fetch data.';
+      }
+      return error.message || fallback;
     },
 
     normalizeUsernameValue(value) {
@@ -260,19 +274,11 @@ export const App = {
       this.username = username;
       this.searchQuery = username;
       this.usernameError = '';
-      this.highlightLoadDialog.pendingUsername = username;
-      this.highlightLoadDialog.isShow = true;
+      this.getInstagramProfile();
     },
 
-    confirmProfileLoad(includeHighlight) {
-      this.highlightLoadDialog.isShow = false;
-      this.getInstagramProfile(includeHighlight);
-    },
-
-    async getInstagramProfile(includeHighlight = false) {
-      const username = (this.highlightLoadDialog.pendingUsername || this.username || '')
-        .trim()
-        .replace(/^@/, '');
+    async getInstagramProfile() {
+      const username = (this.username || '').trim().replace(/^@/, '');
       if (!username) {
         this.usernameError = 'Instagram username is required';
         return;
@@ -282,14 +288,15 @@ export const App = {
       this.searchQuery = username;
       this.usernameError = '';
       this.result = [];
+      this.highlightTray = [];
+      this.highlightLoadingIds = {};
       this.preview.isShow = false;
       this.preview.selected.index = 0;
       this.usernameLoading = true;
 
       try {
         const response = await fetch(
-          getPath('/profile?username=') + encodeURIComponent(username)
-          + '&include_highlight=' + (includeHighlight ? '1' : '0'),
+          getPath('/profile?username=') + encodeURIComponent(username),
           { headers: getIgCookieHeaders(this.cookieStore) }
         );
         if (!response.ok) {
@@ -298,14 +305,60 @@ export const App = {
         }
 
         const data = await response.json();
-        this.jsonString = JSON.stringify(data);
+        this.highlightTray = Array.isArray(data.highlight_tray) ? data.highlight_tray : [];
+        this.jsonString = JSON.stringify({ items: data.items || [] });
         this.searchHistory = saveSearchHistory(this.searchHistory, username);
       } catch (error) {
         console.error('Gagal mengambil data profile:', error);
-        this.usernameError = error.message || 'Failed to fetch profile. Check the username or try again.';
+        this.usernameError = this.describeFetchError(
+          error,
+          'Failed to fetch profile. Check the username or try again.'
+        );
       } finally {
         this.usernameLoading = false;
-        this.highlightLoadDialog.pendingUsername = '';
+      }
+    },
+
+    async loadHighlightAlbum({ id, title }) {
+      const highlightId = (id || '').trim();
+      const highlightTitle = (title || 'Highlight').trim() || 'Highlight';
+      if (!highlightId || this.highlightLoadingIds[highlightId]) {
+        return;
+      }
+
+      const username = (this.username || '').trim().replace(/^@/, '');
+      if (!username) {
+        return;
+      }
+
+      this.highlightLoadingIds = { ...this.highlightLoadingIds, [highlightId]: true };
+
+      try {
+        const params = new URLSearchParams({
+          username,
+          highlight_id: highlightId,
+          title: highlightTitle
+        });
+        const response = await fetch(
+          getPath('/highlight?') + params.toString(),
+          { headers: getIgCookieHeaders(this.cookieStore) }
+        );
+        if (!response.ok) {
+          const errBody = await response.json().catch(() => ({}));
+          throw new Error(errBody.message || `HTTP ${response.status}`);
+        }
+
+        const data = await response.json();
+        const newItems = parserData({ items: data.items || [] }, 'feed');
+        const filtered = this.result.filter((item) => item.highlight_id !== highlightId);
+        this.applyParserResult([...filtered, ...newItems]);
+      } catch (error) {
+        console.error('Gagal mengambil highlight:', error);
+        this.usernameError = this.describeFetchError(error, 'Failed to load highlight album.');
+      } finally {
+        const next = { ...this.highlightLoadingIds };
+        delete next[highlightId];
+        this.highlightLoadingIds = next;
       }
     },
 
@@ -341,7 +394,10 @@ export const App = {
         this.jsonString = JSON.stringify(data);
       } catch (error) {
         console.error('Gagal mengambil post:', error);
-        this.usernameError = error.message || 'Failed to fetch post. Check the URL or try again.';
+        this.usernameError = this.describeFetchError(
+          error,
+          'Failed to fetch post. Check the URL or try again.'
+        );
       } finally {
         this.postUrlLoading = false;
       }
@@ -509,18 +565,12 @@ export const App = {
             class="mt-3 ig-cookie-chip"
             size="small"
             variant="tonal"
-            prepend-icon="fi-rr-key"
+            :color="isNoCookieActive ? 'warning' : undefined"
+            :prepend-icon="isNoCookieActive ? 'fi-rr-exclamation' : 'fi-rr-key'"
             @click="openCookieSettings"
           >
             Cookie: {{ activeCookieLabel }}
           </v-chip>
-
-          <highlight-load-dialog
-            :is-show="highlightLoadDialog.isShow"
-            :pending-username="highlightLoadDialog.pendingUsername"
-            @update:is-show="highlightLoadDialog.isShow = $event"
-            @confirm="confirmProfileLoad"
-          />
 
           <delete-history-dialog
             :is-show="deleteHistoryDialog.isShow"
@@ -540,13 +590,16 @@ export const App = {
           />
 
           <result-panel
-            v-if="result.length > 0"
+            v-if="result.length > 0 || highlightTray.length > 0"
             :key="resultPanelKey"
             :result="result"
+            :highlight-tray="highlightTray"
+            :highlight-loading-ids="highlightLoadingIds"
             :get-path="getPath"
             :get-media-image-src="getMediaImageSrc"
             @preview="showPreview"
             @download="downloadMedia"
+            @load-highlight="loadHighlightAlbum"
           />
 
           <div
