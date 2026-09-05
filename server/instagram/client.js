@@ -7,7 +7,7 @@ const {
   defaultHeaders,
   igApiHeaders
 } = require('../config');
-const { requestContext } = require('../middleware/requestContext');
+const { requestContext, trackOutbound } = require('../middleware/requestContext');
 const { logger } = require('../utils/logger');
 
 /** @type {Map<string, { header: string, at: number }>} */
@@ -86,6 +86,33 @@ const mergeCookieHeaders = (...cookieSources) => {
 };
 
 /**
+ * Build a short label for outbound request logs.
+ * -----------------------------------------------------------------------------
+ * @param {string} url
+ * @param {object} [config]
+ * @returns {string}
+ */
+const formatOutboundTarget = (url, config = {}) => {
+  let pathname = url;
+  try {
+    pathname = new URL(url).pathname;
+  } catch (_error) {
+    pathname = url;
+  }
+
+  const params = config.params || {};
+  const query = Object.entries(params)
+    .filter(([, value]) => value !== undefined && value !== null && value !== '')
+    .map(([key, value]) => {
+      const text = typeof value === 'string' ? logger.truncate(value, 48) : String(value);
+      return `${key}=${text}`;
+    })
+    .join('&');
+
+  return query ? `${pathname}?${query}` : pathname;
+};
+
+/**
  * Bootstrap Instagram cookie with homepage set-cookie values.
  * -----------------------------------------------------------------------------
  * Helps feed endpoints that require csrftoken and companion cookies.
@@ -106,6 +133,9 @@ const getBootstrappedInstagramCookieHeader = async () => {
   }
 
   let header = baseCookie;
+  const target = '/';
+  const started = Date.now();
+  logger.info('ig', `→ GET ${target}`, { purpose: 'cookie-bootstrap', cookie: getCookieSource() });
   try {
     const homepageResponse = await axios.get('https://www.instagram.com/', {
       timeout: 20000,
@@ -118,10 +148,36 @@ const getBootstrappedInstagramCookieHeader = async () => {
       .map((cookieLine) => cookieLine.split(';')[0])
       .join('; ');
     header = mergeCookieHeaders(baseCookie, responseCookies);
-    logger.debug('ig', 'cookie bootstrapped', { source: getCookieSource() });
+    const ms = Date.now() - started;
+    trackOutbound({
+      method: 'GET',
+      url: target,
+      status: homepageResponse.status,
+      ms,
+      ok: true
+    });
+    logger.info('ig', `← GET ${target}`, {
+      purpose: 'cookie-bootstrap',
+      status: homepageResponse.status,
+      ms,
+      cookie: getCookieSource()
+    });
   } catch (error) {
     header = baseCookie;
-    logger.warn('ig', 'cookie bootstrap skipped', { message: error.message });
+    const ms = Date.now() - started;
+    trackOutbound({
+      method: 'GET',
+      url: target,
+      status: error.response?.status,
+      ms,
+      ok: false
+    });
+    logger.warn('ig', `← GET ${target} failed`, {
+      purpose: 'cookie-bootstrap',
+      status: error.response?.status,
+      ms,
+      message: error.message
+    });
   }
 
   instagramCookieCache.set(baseCookie, { header, at: now });
@@ -166,28 +222,41 @@ const igGet = async (url, config = {}) => {
     ...(config.headers || {})
   };
   const started = Date.now();
-  let pathname = url;
-  try {
-    pathname = new URL(url).pathname;
-  } catch (_error) {
-    pathname = url;
-  }
+  const target = formatOutboundTarget(url, config);
+
+  logger.info('ig', `→ GET ${target}`, { cookie: getCookieSource() });
 
   try {
     const response = await axios.get(url, {
       ...config,
       headers
     });
-    logger.debug('ig', `GET ${pathname}`, {
+    const ms = Date.now() - started;
+    trackOutbound({
+      method: 'GET',
+      url: target,
       status: response.status,
-      ms: Date.now() - started,
+      ms,
+      ok: true
+    });
+    logger.info('ig', `← GET ${target}`, {
+      status: response.status,
+      ms,
       cookie: getCookieSource()
     });
     return response;
   } catch (error) {
-    logger.warn('ig', `GET ${pathname} failed`, {
+    const ms = Date.now() - started;
+    trackOutbound({
+      method: 'GET',
+      url: target,
       status: error.response?.status,
-      ms: Date.now() - started,
+      ms,
+      ok: false
+    });
+    logger.warn('ig', `← GET ${target} failed`, {
+      status: error.response?.status,
+      ms,
       cookie: getCookieSource(),
       message: error.message
     });

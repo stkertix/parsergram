@@ -1,5 +1,3 @@
-const { requestContext } = require('../middleware/requestContext');
-
 const LEVELS = {
   error: 0,
   warn: 1,
@@ -60,7 +58,15 @@ const write = (level, scope, message, meta) => {
     return;
   }
 
-  const requestId = requestContext.getStore()?.requestId;
+  // Lazy require avoids circular dependency with requestContext -> logger.
+  let requestId;
+  try {
+    const { requestContext } = require('../middleware/requestContext');
+    requestId = requestContext.getStore()?.requestId;
+  } catch (_error) {
+    requestId = undefined;
+  }
+
   const line = `${new Date().toISOString()} ${level.toUpperCase().padEnd(5)} [${scope}] ${message}${formatMeta({
     ...meta,
     req: requestId
