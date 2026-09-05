@@ -1,5 +1,6 @@
 const { route } = require('../config');
 const { resolveInstagramPostItems } = require('../instagram/posts');
+const { isRateLimited, getRateLimitCooldownMs } = require('../instagram/client');
 const { logger } = require('../utils/logger');
 
 /**
@@ -20,8 +21,15 @@ const registerPostRoutes = (app) => {
       res.setHeader('Access-Control-Allow-Origin', '*');
       return res.status(200).json({ items });
     } catch (error) {
-      const status = error.statusCode || 500;
+      const status = error.statusCode || error.response?.status || 500;
       logger.error('post', 'resolve failed', { status, message: error.message });
+      if (status === 429 || isRateLimited()) {
+        return res.status(429).json({
+          error: 'Instagram rate limited',
+          message: error.message,
+          retry_after_ms: getRateLimitCooldownMs() || error.response?.data?.cooldown_ms || 60000
+        });
+      }
       return res.status(status).json({
         error: 'Failed to resolve Instagram post',
         message: error.message

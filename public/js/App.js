@@ -16,8 +16,37 @@ import {
   NO_COOKIE_ID
 } from './utils/igCookie.js';
 import { detectSearchInput } from './utils/detectSearchInput.js';
+import {
+  errorFromResponse,
+  isRateLimitError,
+  getRetryAfterMs,
+  MAX_AUTO_RETRIES
+} from './utils/rateLimitRetry.js';
 
 const THEME_STORAGE_KEY = 'parsergram-theme';
+const LOAD_PARTS_STORAGE_KEY = 'parsergram-load-parts';
+
+/**
+ * Load last selected profile parts from localStorage.
+ * @returns {string[]}
+ */
+const loadSavedParts = () => {
+  try {
+    const raw = localStorage.getItem(LOAD_PARTS_STORAGE_KEY);
+    if (!raw) {
+      return ['story', 'highlight', 'feed'];
+    }
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) {
+      return ['story', 'highlight', 'feed'];
+    }
+    const allowed = new Set(['story', 'highlight', 'feed']);
+    const next = parsed.filter((part) => allowed.has(part));
+    return next.length > 0 ? next : ['story', 'highlight', 'feed'];
+  } catch (_error) {
+    return ['story', 'highlight', 'feed'];
+  }
+};
 
 export const App = {
   data() {
@@ -42,6 +71,7 @@ export const App = {
       isDarkMode: false,
       highlightTray: [],
       highlightLoadingIds: {},
+      storyLoading: false,
       deleteHistoryDialog: {
         isShow: false,
         pendingUsername: ''
@@ -52,6 +82,20 @@ export const App = {
       },
       cookieSettingsDialog: {
         isShow: false
+      },
+      loadPartsDialog: {
+        isShow: false,
+        username: '',
+        parts: loadSavedParts()
+      },
+      rateLimitRetry: {
+        active: false,
+        secondsLeft: 0,
+        kind: '',
+        payload: null,
+        attempt: 0,
+        timerId: null,
+        tickId: null
       }
     };
   },
@@ -77,6 +121,18 @@ export const App = {
       }
       const active = this.cookieStore.profiles.find((p) => p.id === this.cookieStore.activeId);
       return active?.name || '';
+    },
+    rateLimitRetryMessage() {
+      if (!this.rateLimitRetry.active) {
+        return '';
+      }
+      const label = {
+        profile: 'profile',
+        story: 'stories',
+        post: 'post',
+        highlight: 'highlight'
+      }[this.rateLimitRetry.kind] || 'request';
+      return `Rate limited. Auto-retrying ${label} in ${this.rateLimitRetry.secondsLeft}s…`;
     }
   },
 
@@ -163,7 +219,115 @@ export const App = {
         return 'No Cookie mode is active, so Instagram rejected the request. '
           + 'Select a saved cookie in IG Cookie settings to fetch data.';
       }
-      return error.message || fallback;
+      const message = error.message || fallback;
+      if (isRateLimitError(error)) {
+        const seconds = Math.ceil(getRetryAfterMs(error) / 1000);
+        return `Instagram rate limited (429). Auto-retry in ~${seconds}s.`;
+      }
+      return message;
+    },
+
+    clearRateLimitRetry() {
+      if (this.rateLimitRetry.timerId) {
+        clearTimeout(this.rateLimitRetry.timerId);
+      }
+      if (this.rateLimitRetry.tickId) {
+        clearInterval(this.rateLimitRetry.tickId);
+      }
+      this.rateLimitRetry = {
+        active: false,
+        secondsLeft: 0,
+        kind: '',
+        payload: null,
+        attempt: 0,
+        timerId: null,
+        tickId: null
+      };
+    },
+
+    cancelRateLimitRetry() {
+      this.clearRateLimitRetry();
+      this.usernameError = 'Auto-retry cancelled.';
+    },
+
+    /**
+     * Schedule one auto-retry after Instagram cooldown.
+     * @param {{ kind: string, payload: object, retryAfterMs: number, attempt?: number }} options
+     */
+    scheduleRateLimitRetry({ kind, payload, retryAfterMs, attempt = 0 }) {
+      if (attempt >= MAX_AUTO_RETRIES) {
+        this.clearRateLimitRetry();
+        this.usernameError = `Rate limited again after ${MAX_AUTO_RETRIES} auto-retries. Try again later.`;
+        return;
+      }
+
+      this.clearRateLimitRetry();
+      const waitMs = Math.max(1000, retryAfterMs || 60000);
+      const secondsLeft = Math.ceil(waitMs / 1000);
+
+      this.rateLimitRetry = {
+        active: true,
+        secondsLeft,
+        kind,
+        payload,
+        attempt,
+        timerId: null,
+        tickId: null
+      };
+
+      this.usernameError = this.rateLimitRetryMessage;
+
+      this.rateLimitRetry.tickId = setInterval(() => {
+        if (this.rateLimitRetry.secondsLeft <= 1) {
+          return;
+        }
+        this.rateLimitRetry.secondsLeft -= 1;
+        this.usernameError = this.rateLimitRetryMessage;
+      }, 1000);
+
+      this.rateLimitRetry.timerId = setTimeout(() => {
+        this.runScheduledRateLimitRetry();
+      }, waitMs);
+    },
+
+    async runScheduledRateLimitRetry() {
+      const { kind, payload, attempt } = this.rateLimitRetry;
+      this.clearRateLimitRetry();
+      this.usernameError = 'Cooldown finished — retrying…';
+
+      try {
+        if (kind === 'profile') {
+          await this.getInstagramProfile(payload?.parts, { isAutoRetry: true, attempt: attempt + 1 });
+          return;
+        }
+        if (kind === 'story') {
+          await this.loadStoriesLazy(payload?.username, { isAutoRetry: true, attempt: attempt + 1 });
+          return;
+        }
+        if (kind === 'post') {
+          await this.getInstagramPostByUrl(payload?.url, { isAutoRetry: true, attempt: attempt + 1 });
+          return;
+        }
+        if (kind === 'highlight') {
+          await this.loadHighlightAlbum(payload, { isAutoRetry: true, attempt: attempt + 1 });
+        }
+      } catch (_error) {
+        // Individual loaders already handle/schedule errors.
+      }
+    },
+
+    handlePossibleRateLimit(error, { kind, payload, isAutoRetry = false, attempt = 0 }) {
+      if (!isRateLimitError(error)) {
+        return false;
+      }
+      const nextAttempt = isAutoRetry ? attempt : 0;
+      this.scheduleRateLimitRetry({
+        kind,
+        payload,
+        retryAfterMs: getRetryAfterMs(error),
+        attempt: nextAttempt
+      });
+      return true;
     },
 
     normalizeUsernameValue(value) {
@@ -210,6 +374,7 @@ export const App = {
         return;
       }
 
+      this.clearRateLimitRetry();
       this.usernameError = '';
       this.searchQuery = detected.value;
 
@@ -274,14 +439,51 @@ export const App = {
       this.username = username;
       this.searchQuery = username;
       this.usernameError = '';
-      this.getInstagramProfile();
+      this.loadPartsDialog.username = username;
+      this.loadPartsDialog.parts = loadSavedParts();
+      this.loadPartsDialog.isShow = true;
     },
 
-    async getInstagramProfile() {
+    confirmLoadParts(parts) {
+      const selected = Array.isArray(parts) && parts.length > 0
+        ? parts
+        : this.loadPartsDialog.parts;
+      if (!selected.length) {
+        return;
+      }
+
+      try {
+        localStorage.setItem(LOAD_PARTS_STORAGE_KEY, JSON.stringify(selected));
+      } catch (_error) {
+        // Ignore storage failures.
+      }
+
+      this.loadPartsDialog.parts = selected;
+      this.loadPartsDialog.isShow = false;
+      this.getInstagramProfile(selected);
+    },
+
+    async getInstagramProfile(partsOverride, options = {}) {
       const username = (this.username || '').trim().replace(/^@/, '');
       if (!username) {
         this.usernameError = 'Instagram username is required';
         return;
+      }
+
+      const parts = Array.isArray(partsOverride) && partsOverride.length > 0
+        ? partsOverride
+        : loadSavedParts();
+      const wantFeed = parts.includes('feed');
+      const wantHighlight = parts.includes('highlight');
+      const wantStory = parts.includes('story');
+      const profileParts = [
+        ...(wantFeed ? ['feed'] : []),
+        ...(wantHighlight ? ['highlight'] : [])
+      ];
+      const retryPayload = { parts };
+
+      if (!options.isAutoRetry) {
+        this.clearRateLimitRetry();
       }
 
       this.username = username;
@@ -290,26 +492,48 @@ export const App = {
       this.result = [];
       this.highlightTray = [];
       this.highlightLoadingIds = {};
+      this.storyLoading = false;
       this.preview.isShow = false;
       this.preview.selected.index = 0;
       this.usernameLoading = true;
 
       try {
+        const params = new URLSearchParams({ username });
+        if (wantFeed || wantHighlight) {
+          params.set('parts', profileParts.join(','));
+        } else {
+          params.set('parts', 'none');
+        }
+
         const response = await fetch(
-          getPath('/profile?username=') + encodeURIComponent(username),
+          getPath('/profile?') + params.toString(),
           { headers: getIgCookieHeaders(this.cookieStore) }
         );
         if (!response.ok) {
-          const errBody = await response.json().catch(() => ({}));
-          throw new Error(errBody.message || `HTTP ${response.status}`);
+          throw await errorFromResponse(response);
         }
 
         const data = await response.json();
-        this.highlightTray = Array.isArray(data.highlight_tray) ? data.highlight_tray : [];
+        this.highlightTray = wantHighlight && Array.isArray(data.highlight_tray)
+          ? data.highlight_tray
+          : [];
         this.jsonString = JSON.stringify({ items: data.items || [] });
         this.searchHistory = saveSearchHistory(this.searchHistory, username);
+        this.clearRateLimitRetry();
+
+        if (wantStory) {
+          this.loadStoriesLazy(username);
+        }
       } catch (error) {
         console.error('Gagal mengambil data profile:', error);
+        if (this.handlePossibleRateLimit(error, {
+          kind: 'profile',
+          payload: retryPayload,
+          isAutoRetry: Boolean(options.isAutoRetry),
+          attempt: options.attempt || 0
+        })) {
+          return;
+        }
         this.usernameError = this.describeFetchError(
           error,
           'Failed to fetch profile. Check the username or try again.'
@@ -319,7 +543,44 @@ export const App = {
       }
     },
 
-    async loadHighlightAlbum({ id, title }) {
+    async loadStoriesLazy(usernameOverride, options = {}) {
+      const username = (usernameOverride || this.username || '').trim().replace(/^@/, '');
+      if (!username || this.storyLoading) {
+        return;
+      }
+
+      this.storyLoading = true;
+      try {
+        const response = await fetch(
+          getPath('/story?username=') + encodeURIComponent(username),
+          { headers: getIgCookieHeaders(this.cookieStore) }
+        );
+        if (!response.ok) {
+          throw await errorFromResponse(response);
+        }
+
+        const data = await response.json();
+        const storyItems = parserData({ items: data.items || [] }, 'feed');
+        if (storyItems.length === 0) {
+          return;
+        }
+
+        const withoutStories = this.result.filter((item) => item.media_kind !== 'story');
+        this.applyParserResult([...withoutStories, ...storyItems]);
+      } catch (error) {
+        console.warn('Gagal lazy-load story:', error.message || error);
+        this.handlePossibleRateLimit(error, {
+          kind: 'story',
+          payload: { username },
+          isAutoRetry: Boolean(options.isAutoRetry),
+          attempt: options.attempt || 0
+        });
+      } finally {
+        this.storyLoading = false;
+      }
+    },
+
+    async loadHighlightAlbum({ id, title } = {}, options = {}) {
       const highlightId = (id || '').trim();
       const highlightTitle = (title || 'Highlight').trim() || 'Highlight';
       if (!highlightId || this.highlightLoadingIds[highlightId]) {
@@ -344,16 +605,24 @@ export const App = {
           { headers: getIgCookieHeaders(this.cookieStore) }
         );
         if (!response.ok) {
-          const errBody = await response.json().catch(() => ({}));
-          throw new Error(errBody.message || `HTTP ${response.status}`);
+          throw await errorFromResponse(response);
         }
 
         const data = await response.json();
         const newItems = parserData({ items: data.items || [] }, 'feed');
         const filtered = this.result.filter((item) => item.highlight_id !== highlightId);
         this.applyParserResult([...filtered, ...newItems]);
+        this.clearRateLimitRetry();
       } catch (error) {
         console.error('Gagal mengambil highlight:', error);
+        if (this.handlePossibleRateLimit(error, {
+          kind: 'highlight',
+          payload: { id: highlightId, title: highlightTitle },
+          isAutoRetry: Boolean(options.isAutoRetry),
+          attempt: options.attempt || 0
+        })) {
+          return;
+        }
         this.usernameError = this.describeFetchError(error, 'Failed to load highlight album.');
       } finally {
         const next = { ...this.highlightLoadingIds };
@@ -362,7 +631,7 @@ export const App = {
       }
     },
 
-    async getInstagramPostByUrl(urlOverride) {
+    async getInstagramPostByUrl(urlOverride, options = {}) {
       const url = (urlOverride || this.searchQuery || '').trim();
       if (!url) {
         this.usernameError = 'Instagram post URL is required';
@@ -371,6 +640,10 @@ export const App = {
       if (!/instagram\.com\//i.test(url)) {
         this.usernameError = 'Use an Instagram URL (post, reel, or tv)';
         return;
+      }
+
+      if (!options.isAutoRetry) {
+        this.clearRateLimitRetry();
       }
 
       this.searchQuery = url;
@@ -386,14 +659,22 @@ export const App = {
           { headers: getIgCookieHeaders(this.cookieStore) }
         );
         if (!response.ok) {
-          const errBody = await response.json().catch(() => ({}));
-          throw new Error(errBody.message || `HTTP ${response.status}`);
+          throw await errorFromResponse(response);
         }
 
         const data = await response.json();
         this.jsonString = JSON.stringify(data);
+        this.clearRateLimitRetry();
       } catch (error) {
         console.error('Gagal mengambil post:', error);
+        if (this.handlePossibleRateLimit(error, {
+          kind: 'post',
+          payload: { url },
+          isAutoRetry: Boolean(options.isAutoRetry),
+          attempt: options.attempt || 0
+        })) {
+          return;
+        }
         this.usernameError = this.describeFetchError(
           error,
           'Failed to fetch post. Check the URL or try again.'
@@ -530,6 +811,7 @@ export const App = {
   },
 
   beforeUnmount() {
+    this.clearRateLimitRetry();
     window.removeEventListener('keydown', this.handleKey);
   },
 
@@ -551,13 +833,23 @@ export const App = {
         <div class="ig-main-column">
           <v-alert
             v-if="usernameError"
-            type="error"
+            :type="rateLimitRetry.active ? 'warning' : 'error'"
             variant="tonal"
             class="mt-3 mb-2"
-            closable
+            :closable="!rateLimitRetry.active"
             @click:close="usernameError = ''"
           >
-            {{ usernameError }}
+            <div class="d-flex align-center justify-space-between ga-3 flex-wrap">
+              <span>{{ usernameError }}</span>
+              <v-btn
+                v-if="rateLimitRetry.active"
+                size="small"
+                variant="text"
+                @click="cancelRateLimitRetry"
+              >
+                Cancel
+              </v-btn>
+            </div>
           </v-alert>
 
           <v-chip
@@ -577,6 +869,15 @@ export const App = {
             :pending-username="deleteHistoryDialog.pendingUsername"
             @update:is-show="deleteHistoryDialog.isShow = $event"
             @confirm="confirmDeleteHistory"
+          />
+
+          <load-parts-dialog
+            :is-show="loadPartsDialog.isShow"
+            :username="loadPartsDialog.username"
+            :selected-parts="loadPartsDialog.parts"
+            @update:is-show="loadPartsDialog.isShow = $event"
+            @update:selected-parts="loadPartsDialog.parts = $event"
+            @confirm="confirmLoadParts"
           />
 
           <cookie-settings-dialog

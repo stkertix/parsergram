@@ -6,6 +6,7 @@ import { CookieSettingsDialog } from './components/CookieSettingsDialog.js';
 import { ResultPanel } from './components/ResultPanel.js';
 import { PreviewDialog } from './components/PreviewDialog.js';
 import { ProfileHeader } from './components/ProfileHeader.js';
+import { LoadPartsDialog } from './components/LoadPartsDialog.js';
 
 const { createApp } = Vue;
 const { createVuetify } = Vuetify;
@@ -45,5 +46,6 @@ app.component('CookieSettingsDialog', CookieSettingsDialog);
 app.component('ResultPanel', ResultPanel);
 app.component('PreviewDialog', PreviewDialog);
 app.component('ProfileHeader', ProfileHeader);
+app.component('LoadPartsDialog', LoadPartsDialog);
 
 app.use(vuetify).mount('#app');

@@ -8,6 +8,9 @@ const IG_COOKIE = process.env.IG_COOKIE || '';
 const IG_SESSIONID = process.env.IG_SESSIONID || '';
 const IG_WWW_CLAIM = process.env.IG_WWW_CLAIM || '0';
 const COOKIE_CACHE_TTL_MS = 5 * 60 * 1000;
+const PROFILE_CACHE_TTL_MS = Number(process.env.PROFILE_CACHE_TTL_MS || 3 * 60 * 1000);
+const IG_429_COOLDOWN_MS = Number(process.env.IG_429_COOLDOWN_MS || 60 * 1000);
+const IG_429_RETRY_MS = Number(process.env.IG_429_RETRY_MS || 2500);
 const LOG_LEVEL = (process.env.LOG_LEVEL || 'info').toLowerCase();
 const ROOT_DIR = path.join(__dirname, '..');
 
@@ -46,6 +49,9 @@ module.exports = {
   IG_SESSIONID,
   IG_WWW_CLAIM,
   COOKIE_CACHE_TTL_MS,
+  PROFILE_CACHE_TTL_MS,
+  IG_429_COOLDOWN_MS,
+  IG_429_RETRY_MS,
   LOG_LEVEL,
   ROOT_DIR,
   route,

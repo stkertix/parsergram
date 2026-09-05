@@ -3,6 +3,7 @@ const { registerMediaRoutes } = require('./media');
 const { registerPostRoutes } = require('./post');
 const { registerProfileRoutes } = require('./profile');
 const { registerHighlightRoutes } = require('./highlight');
+const { registerStoryRoutes } = require('./story');
 
 /**
  * Register all HTTP routes on the Express app.
@@ -15,6 +16,7 @@ const registerRoutes = (app) => {
   registerPostRoutes(app);
   registerProfileRoutes(app);
   registerHighlightRoutes(app);
+  registerStoryRoutes(app);
 };
 
 module.exports = {

@@ -24,6 +24,29 @@ const getFeedItems = async (user, username) => {
     return feedItems;
   }
 
+  // GraphQL username-feed fallback may attach raw v1-style media nodes.
+  const graphqlFeedItems = Array.isArray(user._graphql_feed_items) ? user._graphql_feed_items : [];
+  if (graphqlFeedItems.length > 0) {
+    feedItems = graphqlFeedItems
+      .map((rawItem) => toApiFeedItem(rawItem, user.username || username))
+      .filter(Boolean);
+    if (feedItems.length > 0) {
+      logger.info('feed', 'using graphql feed items', {
+        username: user.username || username,
+        count: feedItems.length
+      });
+      return feedItems;
+    }
+  }
+
+  const { isRateLimited } = require('./client');
+  if (isRateLimited()) {
+    logger.warn('feed', 'skip API fallback during cooldown', {
+      username: user.username || username
+    });
+    return [];
+  }
+
   logger.info('feed', 'timeline empty, trying API fallback', {
     username: user.username || username,
     userId: user.id

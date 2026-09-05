@@ -107,6 +107,19 @@ const getHighlightTrayFromGraphQL = async (userId) => {
  * @returns {Promise<Array<{id: string, title: string}>>} Highlight tray entries.
  */
 const resolveHighlightTray = async (user) => {
+  // Prefer data already present on web_profile_info — zero extra IG calls.
+  const edgeTray = getHighlightTrayFromEdge(user);
+  if (edgeTray.length > 0) {
+    logger.info('highlight', 'tray from profile edges', { count: edgeTray.length });
+    return edgeTray;
+  }
+
+  const { isRateLimited } = require('./client');
+  if (isRateLimited()) {
+    logger.warn('highlight', 'skip tray API during cooldown');
+    return [];
+  }
+
   try {
     const tray = await getHighlightTray(user.id);
     if (tray.length > 0) {
@@ -115,12 +128,9 @@ const resolveHighlightTray = async (user) => {
     }
   } catch (trayError) {
     logger.warn('highlight', 'tray fetch skipped', { message: trayError.message });
-  }
-
-  const edgeTray = getHighlightTrayFromEdge(user);
-  if (edgeTray.length > 0) {
-    logger.info('highlight', 'tray from profile edges', { count: edgeTray.length });
-    return edgeTray;
+    if (trayError.response?.status === 429 || trayError.statusCode === 429) {
+      return [];
+    }
   }
 
   try {

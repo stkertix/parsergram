@@ -4,14 +4,20 @@ const {
   IG_SESSIONID,
   IG_WWW_CLAIM,
   COOKIE_CACHE_TTL_MS,
+  IG_429_COOLDOWN_MS,
+  IG_429_RETRY_MS,
   defaultHeaders,
   igApiHeaders
 } = require('../config');
 const { requestContext, trackOutbound } = require('../middleware/requestContext');
 const { logger } = require('../utils/logger');
+const { getIgRateSummary } = require('../utils/igRateTracker');
 
 /** @type {Map<string, { header: string, at: number }>} */
 const instagramCookieCache = new Map();
+
+/** @type {number} */
+let rateLimitCooldownUntil = 0;
 
 /**
  * Resolve Instagram cookie: request override, then env vars.
@@ -113,6 +119,41 @@ const formatOutboundTarget = (url, config = {}) => {
 };
 
 /**
+ * Whether outbound IG calls should pause after a recent 429.
+ * -----------------------------------------------------------------------------
+ * @returns {boolean}
+ */
+const isRateLimited = () => Date.now() < rateLimitCooldownUntil;
+
+/**
+ * Remaining cooldown ms after a 429.
+ * -----------------------------------------------------------------------------
+ * @returns {number}
+ */
+const getRateLimitCooldownMs = () => Math.max(0, rateLimitCooldownUntil - Date.now());
+
+/**
+ * Arm cooldown window after Instagram returns 429.
+ * -----------------------------------------------------------------------------
+ * @param {number} [ms]
+ */
+const armRateLimitCooldown = (ms = IG_429_COOLDOWN_MS) => {
+  rateLimitCooldownUntil = Math.max(rateLimitCooldownUntil, Date.now() + ms);
+  logger.warn('ig', 'cooldown armed', {
+    ms: getRateLimitCooldownMs(),
+    until: new Date(rateLimitCooldownUntil).toISOString()
+  });
+};
+
+/**
+ * Sleep helper for 429 retry.
+ * -----------------------------------------------------------------------------
+ * @param {number} ms
+ * @returns {Promise<void>}
+ */
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
  * Bootstrap Instagram cookie with homepage set-cookie values.
  * -----------------------------------------------------------------------------
  * Helps feed endpoints that require csrftoken and companion cookies.
@@ -210,57 +251,245 @@ const getInstagramAuthHeaders = async () => {
 /**
  * Perform authenticated GET request to Instagram API.
  * -----------------------------------------------------------------------------
+ * Retries once on 429 after a short wait, then arms a cooldown window.
  * @param {string} url - Target URL.
  * @param {object} [config={}] - Axios request config.
+ * @param {boolean} [config.bypassCooldown] - Allow call even during global cooldown.
+ * @param {boolean} [config.skipCooldownArm] - Do not arm cooldown on 429 (for fallbacks).
  * @returns {Promise<import('axios').AxiosResponse>} Axios response.
  */
 const igGet = async (url, config = {}) => {
+  const {
+    bypassCooldown = false,
+    skipCooldownArm = false,
+    ...axiosConfig
+  } = config;
+
+  if (isRateLimited() && !bypassCooldown) {
+    const waitMs = getRateLimitCooldownMs();
+    const err = new Error(`Instagram rate limit cooldown active (${Math.ceil(waitMs / 1000)}s left)`);
+    err.statusCode = 429;
+    err.response = { status: 429, data: { cooldown_ms: waitMs } };
+    logger.warn('ig', 'blocked by cooldown', {
+      target: formatOutboundTarget(url, axiosConfig),
+      waitMs
+    });
+    throw err;
+  }
+
   const authHeaders = await getInstagramAuthHeaders();
   const headers = {
     ...igApiHeaders,
     ...authHeaders,
-    ...(config.headers || {})
+    ...(axiosConfig.headers || {})
   };
-  const started = Date.now();
-  const target = formatOutboundTarget(url, config);
+  const target = formatOutboundTarget(url, axiosConfig);
 
-  logger.info('ig', `→ GET ${target}`, { cookie: getCookieSource() });
+  const attemptOnce = async (attempt) => {
+    const started = Date.now();
+    logger.info('ig', `→ GET ${target}`, {
+      cookie: getCookieSource(),
+      attempt
+    });
+
+    try {
+      const response = await axios.get(url, {
+        ...axiosConfig,
+        headers
+      });
+      const ms = Date.now() - started;
+      trackOutbound({
+        method: 'GET',
+        url: target,
+        status: response.status,
+        ms,
+        ok: true
+      });
+      logger.info('ig', `← GET ${target}`, {
+        status: response.status,
+        ms,
+        cookie: getCookieSource(),
+        attempt
+      });
+      return response;
+    } catch (error) {
+      const ms = Date.now() - started;
+      const status = error.response?.status;
+      trackOutbound({
+        method: 'GET',
+        url: target,
+        status,
+        ms,
+        ok: false
+      });
+      logger.warn('ig', `← GET ${target} failed`, {
+        status,
+        ms,
+        cookie: getCookieSource(),
+        attempt,
+        message: error.message
+      });
+      throw error;
+    }
+  };
 
   try {
-    const response = await axios.get(url, {
-      ...config,
-      headers
+    return await attemptOnce(1);
+  } catch (error) {
+    if (error.response?.status !== 429) {
+      throw error;
+    }
+
+    if (!skipCooldownArm) {
+      armRateLimitCooldown();
+    }
+    const rate = getIgRateSummary();
+    logger.warn('ig', '429 received, retrying once after backoff', {
+      retryMs: IG_429_RETRY_MS,
+      last1m: rate.last1m,
+      last5m: rate.last5m,
+      skipCooldownArm
     });
+
+    await sleep(IG_429_RETRY_MS);
+
+    // Allow a single retry through the cooldown window.
+    rateLimitCooldownUntil = 0;
+    try {
+      return await attemptOnce(2);
+    } catch (retryError) {
+      if (retryError.response?.status === 429 && !skipCooldownArm) {
+        armRateLimitCooldown();
+      }
+      throw retryError;
+    }
+  }
+};
+
+/**
+ * Instagram GraphQL persisted query (doc_id), POST first then GET fallback.
+ * -----------------------------------------------------------------------------
+ * @param {string} docId
+ * @param {object} variables
+ * @param {{ bypassCooldown?: boolean, skipCooldownArm?: boolean, referer?: string }} [options]
+ * @returns {Promise<object>} Parsed GraphQL JSON body
+ */
+const igGraphqlQuery = async (docId, variables, options = {}) => {
+  const {
+    bypassCooldown = false,
+    skipCooldownArm = false,
+    referer
+  } = options;
+
+  if (isRateLimited() && !bypassCooldown) {
+    const waitMs = getRateLimitCooldownMs();
+    const err = new Error(`Instagram rate limit cooldown active (${Math.ceil(waitMs / 1000)}s left)`);
+    err.statusCode = 429;
+    err.response = { status: 429, data: { cooldown_ms: waitMs } };
+    throw err;
+  }
+
+  const authHeaders = await getInstagramAuthHeaders();
+  const variablesJson = JSON.stringify(variables);
+  const params = {
+    doc_id: docId,
+    variables: variablesJson,
+    server_timestamps: 'true'
+  };
+  const headers = {
+    ...igApiHeaders,
+    ...authHeaders,
+    'Accept': '*/*',
+    'Content-Type': 'application/x-www-form-urlencoded',
+    ...(referer ? { Referer: referer } : {})
+  };
+  const target = `/graphql/query/?doc_id=${docId}`;
+  const started = Date.now();
+
+  logger.info('ig', `→ POST ${target}`, { cookie: getCookieSource() });
+
+  try {
+    const response = await axios.post(
+      'https://www.instagram.com/graphql/query/',
+      new URLSearchParams(params).toString(),
+      {
+        timeout: 20000,
+        headers
+      }
+    );
     const ms = Date.now() - started;
     trackOutbound({
-      method: 'GET',
+      method: 'POST',
       url: target,
       status: response.status,
       ms,
       ok: true
     });
-    logger.info('ig', `← GET ${target}`, {
+    logger.info('ig', `← POST ${target}`, {
       status: response.status,
       ms,
       cookie: getCookieSource()
     });
-    return response;
-  } catch (error) {
-    const ms = Date.now() - started;
+    return response.data;
+  } catch (postError) {
+    const postStatus = postError.response?.status;
     trackOutbound({
-      method: 'GET',
+      method: 'POST',
       url: target,
-      status: error.response?.status,
-      ms,
+      status: postStatus,
+      ms: Date.now() - started,
       ok: false
     });
-    logger.warn('ig', `← GET ${target} failed`, {
-      status: error.response?.status,
-      ms,
-      cookie: getCookieSource(),
-      message: error.message
+    logger.warn('ig', `← POST ${target} failed`, {
+      status: postStatus,
+      message: postError.message
     });
-    throw error;
+
+    if (postStatus === 429) {
+      if (!skipCooldownArm) {
+        armRateLimitCooldown();
+      }
+      throw postError;
+    }
+
+    // Some environments only accept GET for persisted queries.
+    logger.info('ig', `→ GET ${target}`, { cookie: getCookieSource(), fallback: 'graphql-get' });
+    const getStarted = Date.now();
+    try {
+      const response = await axios.get('https://www.instagram.com/graphql/query/', {
+        params,
+        timeout: 20000,
+        headers: {
+          ...igApiHeaders,
+          ...authHeaders,
+          ...(referer ? { Referer: referer } : {})
+        }
+      });
+      trackOutbound({
+        method: 'GET',
+        url: target,
+        status: response.status,
+        ms: Date.now() - getStarted,
+        ok: true
+      });
+      logger.info('ig', `← GET ${target}`, {
+        status: response.status,
+        ms: Date.now() - getStarted
+      });
+      return response.data;
+    } catch (getError) {
+      trackOutbound({
+        method: 'GET',
+        url: target,
+        status: getError.response?.status,
+        ms: Date.now() - getStarted,
+        ok: false
+      });
+      if (getError.response?.status === 429 && !skipCooldownArm) {
+        armRateLimitCooldown();
+      }
+      throw getError;
+    }
   }
 };
 
@@ -270,5 +499,9 @@ module.exports = {
   mergeCookieHeaders,
   getBootstrappedInstagramCookieHeader,
   getInstagramAuthHeaders,
-  igGet
+  igGet,
+  igGraphqlQuery,
+  isRateLimited,
+  getRateLimitCooldownMs,
+  armRateLimitCooldown
 };

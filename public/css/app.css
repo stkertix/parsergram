@@ -483,6 +483,19 @@ body {
   color: var(--ig-text);
 }
 
+.ig-load-parts-hint {
+  margin: 0;
+  color: var(--ig-text-muted);
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+
+.ig-load-parts-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .text-shadow {
   text-shadow: 1px 1px 4px rgba(0, 0, 0, 0.7);
 }
